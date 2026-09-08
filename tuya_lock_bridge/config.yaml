@@ -11,6 +11,9 @@ arch:
   - aarch64
   - armv7
 init: false
+# Leest via Supervisor's proxy de taal en tijdzone van Home Assistant, zodat
+# de interface zich vanzelf aanpast en er niets ingesteld hoeft te worden.
+homeassistant_api: true
 # Supervisor hands over the broker details once an add-on asks for MQTT, so the
 # user does not have to fill in host, port or credentials.
 services:
@@ -36,7 +39,7 @@ options:
   access_secret: ""
   endpoint: "https://openapi.tuyaeu.com"
   api_token: ""
-  time_zone: "Europe/Amsterdam"
+  time_zone: ""
   # Leave the mqtt fields empty to use the Home Assistant broker; Supervisor
   # then supplies host, port and credentials by itself.
   mqtt_enabled: true

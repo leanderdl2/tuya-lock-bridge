@@ -41,6 +41,169 @@ with open("/data/options.json", encoding="utf-8") as f:
     CFG = json.load(f)
 
 
+def ha_config():
+    """Leest de instellingen van Home Assistant zelf uit.
+
+    Loopt via Supervisor's proxy naar de Core-API, waarvoor de add-on
+    homeassistant_api moet declareren. Levert onder andere 'language' en
+    'time_zone'. Mislukt het - geen Supervisor, geen rechten, Core nog niet
+    opgestart - dan geven we een lege dict terug en valt de rest terug op
+    zijn eigen standaardwaarden.
+    """
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        return {}
+    try:
+        r = requests.get(
+            "http://supervisor/core/api/config",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        log.warning("could not read the Home Assistant configuration: %s", e)
+        return {}
+
+
+HA = ha_config()
+
+# Teksten die de gebruiker te zien krijgt, per taal. De taal komt van Home
+# Assistant zelf, dus wie zijn installatie op Nederlands heeft staan krijgt
+# Nederlandse entiteiten zonder hier iets voor in te stellen. Een taal die we
+# niet kennen valt terug op Engels.
+TEKST = {
+    "en": {
+        "device": "Lock {name}",
+        "button": "Open",
+        "sensor": "Valid codes",
+        "revoked": "revoked",
+        "expired": "expired",
+        "scheduled": "scheduled",
+        "waiting": "waiting for lock",
+        "active": "active",
+        "panel": {
+            "title": "Locks",
+            "heading": "Access codes",
+            "lock": "Lock",
+            "openDoor": "Open the door",
+            "codesHeading": "Codes on this lock",
+            "colName": "Name",
+            "colFrom": "Valid from",
+            "colUntil": "Valid until",
+            "colStatus": "Status",
+            "loading": "Loading…",
+            "newHeading": "New code",
+            "name": "Name",
+            "namePlaceholder": "Cleaner",
+            "pin": "PIN",
+            "validFrom": "Valid from",
+            "validUntil": "Valid until",
+            "pattern": "Pattern",
+            "patContinuous": "Valid throughout that period",
+            "patDaily": "A fixed window every day",
+            "patDays": "Only on chosen weekdays",
+            "patOnce": "Single use - expires once used",
+            "days": "Days",
+            "dayFrom": "Every day from",
+            "dayUntil": "Every day until",
+            "create": "Create code",
+            "weekdays": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            "everyDay": "every day",
+            "singleUse": "single use",
+            "noCodes": "No codes on this lock.",
+            "loadFailed": "Could not load: {err}",
+            "loadFailedRow": "Could not load the codes.",
+            "remove": "Remove",
+            "revoke": "Revoke",
+            "confirmRemove": 'Remove the record of "{name}" from the list?',
+            "confirmRevoke": 'Revoke code "{name}"? It will stop working.',
+            "removedOk": "Record removed.",
+            "revokedOk": "Code revoked.",
+            "failed": "Failed: {err}",
+            "confirmOpen": 'Open the door of "{name}" now?',
+            "openedOk": "Door opened.",
+            "openFailed": "Could not open: {err}",
+            "pinDigits": "Enter a PIN of digits only.",
+            "needTimes": "Enter a start and end time.",
+            "needDay": "Pick at least one weekday.",
+            "needWindow": "Fill in the daily time window.",
+            "createdOk": "Code created. It takes a minute or two before the lock knows it.",
+            "createFailed": "Could not create: {err}",
+            "noLocks": "No locks configured yet. Add them in the add-on configuration.",
+            "fetchLocksFailed": "Could not fetch the locks: {err}",
+        },
+    },
+    "nl": {
+        "device": "Slot {name}",
+        "button": "Openen",
+        "sensor": "Geldige codes",
+        "revoked": "ingetrokken",
+        "expired": "verlopen",
+        "scheduled": "gepland",
+        "waiting": "wacht op slot",
+        "active": "actief",
+        "panel": {
+            "title": "Sloten",
+            "heading": "Toegangscodes",
+            "lock": "Slot",
+            "openDoor": "Deur openen",
+            "codesHeading": "Codes op dit slot",
+            "colName": "Naam",
+            "colFrom": "Geldig van",
+            "colUntil": "Geldig tot",
+            "colStatus": "Status",
+            "loading": "Laden…",
+            "newHeading": "Nieuwe code",
+            "name": "Naam",
+            "namePlaceholder": "Schoonmaker",
+            "pin": "Pincode",
+            "validFrom": "Geldig vanaf",
+            "validUntil": "Geldig tot",
+            "pattern": "Patroon",
+            "patContinuous": "Doorlopend geldig in die periode",
+            "patDaily": "Elke dag een vast tijdvenster",
+            "patDays": "Alleen op gekozen weekdagen",
+            "patOnce": "Eenmalig - vervalt na gebruik",
+            "days": "Dagen",
+            "dayFrom": "Elke dag vanaf",
+            "dayUntil": "Elke dag tot",
+            "create": "Code aanmaken",
+            "weekdays": ["ma", "di", "wo", "do", "vr", "za", "zo"],
+            "everyDay": "elke dag",
+            "singleUse": "eenmalig",
+            "noCodes": "Geen codes op dit slot.",
+            "loadFailed": "Ophalen mislukt: {err}",
+            "loadFailedRow": "Kon de codes niet ophalen.",
+            "remove": "Uit lijst",
+            "revoke": "Intrekken",
+            "confirmRemove": 'Record van "{name}" uit de lijst verwijderen?',
+            "confirmRevoke": 'Code "{name}" intrekken? Die werkt daarna niet meer.',
+            "removedOk": "Record verwijderd.",
+            "revokedOk": "Code ingetrokken.",
+            "failed": "Mislukt: {err}",
+            "confirmOpen": 'Het slot van "{name}" nu openen?',
+            "openedOk": "Deur geopend.",
+            "openFailed": "Openen mislukt: {err}",
+            "pinDigits": "Vul een pincode van alleen cijfers in.",
+            "needTimes": "Vul een begin- en eindtijd in.",
+            "needDay": "Kies minstens een weekdag.",
+            "needWindow": "Vul het dagelijkse tijdvenster in.",
+            "createdOk": "Code aangemaakt. Het duurt 1 tot 2 minuten voor het slot hem kent.",
+            "createFailed": "Aanmaken mislukt: {err}",
+            "noLocks": "Nog geen sloten geconfigureerd. Vul ze in bij de add-on-configuratie.",
+            "fetchLocksFailed": "Kon de sloten niet ophalen: {err}",
+        },
+    },
+}
+
+TAAL = (HA.get("language") or "en").split("-")[0].lower()
+if TAAL not in TEKST:
+    TAAL = "en"
+T = TEKST[TAAL]
+log.info("Interface language: %s", TAAL)
+
+
 def _load_locks(cfg):
     """Bouwt {naam: device_id} uit de add-on-opties.
 
@@ -225,7 +388,9 @@ def maak_code(
         }
         if schedule:
             body["schedule_list"] = build_schedule(schedule)
-            body["time_zone"] = CFG.get("time_zone") or "Europe/Amsterdam"
+            body["time_zone"] = (
+            CFG.get("time_zone") or HA.get("time_zone") or "Europe/Amsterdam"
+        )
 
         return api.post(f"/v1.0/devices/{device_id}/door-lock/temp-password", body)
 
@@ -264,7 +429,7 @@ def code_status(code, nu):
     if code.get("effective_time", 0) > nu:
         return "scheduled"
     if code.get("phase") == 12:
-        return "waiting for lock"
+        return "waiting"
     return "active"
 
 
@@ -437,7 +602,7 @@ def delete_code_record(room, password_id):
 
 
 PANEL_HTML = """<!doctype html>
-<html lang="en">
+<html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -484,56 +649,86 @@ PANEL_HTML = """<!doctype html>
 </style>
 </head>
 <body>
-<h1>Access codes</h1>
+<h1 data-i18n="heading">Access codes</h1>
 <div id="msg"></div>
 
 <div class="card">
   <div class="row" style="margin-bottom:0; align-items:flex-end">
-    <div><label for="lock">Lock</label><select id="lock"></select></div>
-    <div style="flex:0 0 auto"><button id="open">Open the door</button></div>
+    <div><label for="lock" data-i18n="lock">Lock</label><select id="lock"></select></div>
+    <div style="flex:0 0 auto"><button id="open" data-i18n="openDoor">Open the door</button></div>
   </div>
 </div>
 
-<h2>Codes on this lock</h2>
+<h2 data-i18n="codesHeading">Codes on this lock</h2>
 <div class="card">
   <table>
-    <thead><tr><th>Name</th><th>Valid from</th><th>Valid until</th><th>Status</th><th></th></tr></thead>
-    <tbody id="rows"><tr><td colspan="5">Loading…</td></tr></tbody>
+    <thead><tr>
+      <th data-i18n="colName">Name</th>
+      <th data-i18n="colFrom">Valid from</th>
+      <th data-i18n="colUntil">Valid until</th>
+      <th data-i18n="colStatus">Status</th>
+      <th></th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
   </table>
 </div>
 
-<h2>New code</h2>
+<h2 data-i18n="newHeading">New code</h2>
 <div class="card">
   <div class="row">
-    <div><label for="naam">Name</label><input id="naam" placeholder="Cleaner"></div>
-    <div><label for="pin">PIN</label><input id="pin" inputmode="numeric" placeholder="123456"></div>
+    <div><label for="naam" data-i18n="name">Name</label><input id="naam" data-i18n-ph="namePlaceholder"></div>
+    <div><label for="pin" data-i18n="pin">PIN</label><input id="pin" inputmode="numeric" placeholder="123456"></div>
   </div>
   <div class="row">
-    <div><label for="van">Valid from</label><input id="van" type="datetime-local"></div>
-    <div><label for="tot">Valid until</label><input id="tot" type="datetime-local"></div>
+    <div><label for="van" data-i18n="validFrom">Valid from</label><input id="van" type="datetime-local"></div>
+    <div><label for="tot" data-i18n="validUntil">Valid until</label><input id="tot" type="datetime-local"></div>
   </div>
   <div class="row">
     <div>
-      <label for="patroon">Pattern</label>
+      <label for="patroon" data-i18n="pattern">Pattern</label>
       <select id="patroon">
-        <option value="doorlopend">Valid throughout that period</option>
-        <option value="dagelijks">A fixed window every day</option>
-        <option value="dagen">Only on chosen weekdays</option>
-        <option value="eenmalig">Single use - expires once used</option>
+        <option value="doorlopend" data-i18n="patContinuous">Valid throughout that period</option>
+        <option value="dagelijks" data-i18n="patDaily">A fixed window every day</option>
+        <option value="dagen" data-i18n="patDays">Only on chosen weekdays</option>
+        <option value="eenmalig" data-i18n="patOnce">Single use - expires once used</option>
       </select>
     </div>
   </div>
   <div class="row" id="dagenrij" hidden>
-    <div style="flex:1 1 100%"><label>Days</label><div id="dagen" class="dagen"></div></div>
+    <div style="flex:1 1 100%"><label data-i18n="days">Days</label><div id="dagen" class="dagen"></div></div>
   </div>
   <div class="row" id="urenrij" hidden>
-    <div><label for="dagvan">Every day from</label><input id="dagvan" type="time" value="11:00"></div>
-    <div><label for="dagtot">Every day until</label><input id="dagtot" type="time" value="15:00"></div>
+    <div><label for="dagvan" data-i18n="dayFrom">Every day from</label><input id="dagvan" type="time" value="11:00"></div>
+    <div><label for="dagtot" data-i18n="dayUntil">Every day until</label><input id="dagtot" type="time" value="15:00"></div>
   </div>
-  <button id="add">Create code</button>
+  <button id="add" data-i18n="create">Create code</button>
 </div>
 
 <script>
+// Teksten voor alle ondersteunde talen komen mee; welke er getoond wordt kiest
+// de browser. Zo volgt het paneel de taal van degene die ernaar kijkt, terwijl
+// de entiteiten de taal van de installatie aanhouden - die zijn immers voor
+// iedereen hetzelfde. Kent de browser een taal die wij niet hebben, dan valt
+// hij terug op de taal van Home Assistant zelf.
+const TEKSTEN = __TEKSTEN__;
+const SERVER_TAAL = "__TAAL__";
+const kort = (navigator.language || '').slice(0, 2).toLowerCase();
+const T = TEKSTEN[kort] || TEKSTEN[SERVER_TAAL] || TEKSTEN.en;
+
+const vul = (sjabloon, waarden) =>
+  String(sjabloon).replace(/\\{(\\w+)\\}/g, (_, k) => waarden[k] !== undefined ? waarden[k] : '');
+
+document.title = T.title;
+document.documentElement.lang = kort in TEKSTEN ? kort : SERVER_TAAL;
+document.querySelectorAll('[data-i18n]').forEach(el => {
+  const v = T[el.dataset.i18n];
+  if (v) el.textContent = v;
+});
+document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+  const v = T[el.dataset.i18nPh];
+  if (v) el.placeholder = v;
+});
+
 const base = location.pathname.replace(/\\/$/, '') + '/';
 const $ = id => document.getElementById(id);
 
@@ -542,6 +737,10 @@ function melding(tekst, soort) {
   m.textContent = tekst;
   m.className = soort;
   if (soort === 'good') setTimeout(() => { m.className = ''; }, 6000);
+}
+
+function laadrij() {
+  $('rows').innerHTML = '<tr><td colspan="5">' + T.loading + '</td></tr>';
 }
 
 async function api(pad, opties) {
@@ -559,25 +758,19 @@ const fmt = ts => new Date(ts * 1000).toLocaleString(undefined,
 // Weekdagen zoals wij ze versturen (1 = maandag t/m 7 = zondag) en zoals Tuya
 // ze TERUGGEEFT. Dat zijn verschillende bitwaarden: bij het versturen is
 // zondag bit 0, in het antwoord is de bitvolgorde omgedraaid en is zondag 128.
-const DAGEN = [
-  { nr: 1, naam: 'Mon', terug: 64 },
-  { nr: 2, naam: 'Tue', terug: 32 },
-  { nr: 3, naam: 'Wed', terug: 16 },
-  { nr: 4, naam: 'Thu', terug: 8 },
-  { nr: 5, naam: 'Fri', terug: 4 },
-  { nr: 6, naam: 'Sat', terug: 2 },
-  { nr: 7, naam: 'Sun', terug: 128 }
-];
+const DAGEN = [64, 32, 16, 8, 4, 2, 128].map((terug, i) => ({
+  nr: i + 1, naam: T.weekdays[i], terug
+}));
 
 // De uren in een teruggelezen schedule staan als HHMM: 1100 betekent 11:00.
 const uur = v => String(v).padStart(4, '0').replace(/(\\d\\d)(\\d\\d)/, '$1:$2');
 
 function patroonTekst(code) {
   const s = (code.schedule_list || [])[0];
-  const eenmalig = code.type === 1 ? 'single use' : '';
+  const eenmalig = code.type === 1 ? T.singleUse : '';
   if (!s) return eenmalig;
   const dagen = DAGEN.filter(d => s.working_day & d.terug).map(d => d.naam);
-  const welke = dagen.length === 7 ? 'every day' : dagen.join(' ');
+  const welke = dagen.length === 7 ? T.everyDay : dagen.join(' ');
   const tijd = uur(s.effective_time) + '-' + uur(s.invalid_time);
   return [welke + ' ' + tijd, eenmalig].filter(Boolean).join(', ');
 }
@@ -586,31 +779,31 @@ function status(code, nu) {
   if (code.phase === 17) return ['revoked', 'off'];
   if (code.invalid_time < nu) return ['expired', 'off'];
   if (code.effective_time > nu) return ['scheduled', 'wait'];
-  if (code.phase === 12) return ['waiting for lock', 'wait'];
+  if (code.phase === 12) return ['waiting', 'wait'];
   return ['active', 'ok'];
 }
 
 async function laadCodes() {
   const slot = $('lock').value;
   if (!slot) return;
-  $('rows').innerHTML = '<tr><td colspan="5">Loading…</td></tr>';
+  laadrij();
   try {
     const j = await api('codes/' + slot);
     const nu = Math.floor(Date.now() / 1000);
     const lijst = (j.result || []).slice().sort((a, b) => b.effective_time - a.effective_time);
     if (!lijst.length) {
-      $('rows').innerHTML = '<tr><td colspan="5">No codes on this lock.</td></tr>';
+      $('rows').innerHTML = '<tr><td colspan="5">' + T.noCodes + '</td></tr>';
       return;
     }
     $('rows').innerHTML = '';
     for (const c of lijst) {
-      const [tekst, klasse] = status(c, nu);
+      const [sleutel, klasse] = status(c, nu);
       const patroon = patroonTekst(c);
       const tr = document.createElement('tr');
       tr.innerHTML = '<td></td>'
         + '<td class="num">' + fmt(c.effective_time) + '</td>'
         + '<td class="num">' + fmt(c.invalid_time) + '</td>'
-        + '<td><span class="tag ' + klasse + '">' + tekst + '</span></td>'
+        + '<td><span class="tag ' + klasse + '">' + T[sleutel] + '</span></td>'
         + '<td style="text-align:right"></td>';
       // Naam via textContent, niet via innerHTML: die komt uit de Tuya-cloud
       // en kan dus van alles bevatten.
@@ -622,44 +815,43 @@ async function laadCodes() {
       }
       const knop = document.createElement('button');
       knop.className = 'sec';
-      knop.textContent = c.invalid_time < nu || c.phase === 17 ? 'Remove' : 'Revoke';
+      const weg = c.invalid_time < nu || c.phase === 17;
+      knop.textContent = weg ? T.remove : T.revoke;
       knop.onclick = () => verwijder(slot, c, knop);
       tr.lastElementChild.appendChild(knop);
       $('rows').appendChild(tr);
     }
   } catch (e) {
-    melding('Could not load: ' + e.message, 'err');
-    $('rows').innerHTML = '<tr><td colspan="5">Could not load the codes.</td></tr>';
+    melding(vul(T.loadFailed, { err: e.message }), 'err');
+    $('rows').innerHTML = '<tr><td colspan="5">' + T.loadFailedRow + '</td></tr>';
   }
 }
 
 async function verwijder(slot, code, knop) {
   const verlopen = code.invalid_time < Math.floor(Date.now() / 1000) || code.phase === 17;
-  const vraag = verlopen
-    ? 'Remove the record of "' + code.name + '" from the list?'
-    : 'Revoke code "' + code.name + '"? It will stop working.';
+  const vraag = vul(verlopen ? T.confirmRemove : T.confirmRevoke, { name: code.name });
   if (!confirm(vraag)) return;
   knop.disabled = true;
   try {
     const pad = 'codes/' + slot + '/' + code.id + (verlopen ? '/record' : '');
     await api(pad, { method: 'DELETE' });
-    melding(verlopen ? 'Record removed.' : 'Code revoked.', 'good');
+    melding(verlopen ? T.removedOk : T.revokedOk, 'good');
     laadCodes();
   } catch (e) {
-    melding('Failed: ' + e.message, 'err');
+    melding(vul(T.failed, { err: e.message }), 'err');
     knop.disabled = false;
   }
 }
 
 $('open').onclick = async () => {
   const slot = $('lock').value;
-  if (!slot || !confirm('Open the door of "' + slot + '" now?')) return;
+  if (!slot || !confirm(vul(T.confirmOpen, { name: slot }))) return;
   $('open').disabled = true;
   try {
     await api('unlock/' + slot, { method: 'POST' });
-    melding('Door opened.', 'good');
+    melding(T.openedOk, 'good');
   } catch (e) {
-    melding('Could not open: ' + e.message, 'err');
+    melding(vul(T.openFailed, { err: e.message }), 'err');
   }
   $('open').disabled = false;
 };
@@ -680,8 +872,8 @@ $('add').onclick = async () => {
   const slot = $('lock').value;
   const pin = $('pin').value.trim();
   const van = $('van').value, tot = $('tot').value;
-  if (!/^[0-9]+$/.test(pin)) return melding('Enter a PIN of digits only.', 'err');
-  if (!van || !tot) return melding('Enter a start and end time.', 'err');
+  if (!/^[0-9]+$/.test(pin)) return melding(T.pinDigits, 'err');
+  if (!van || !tot) return melding(T.needTimes, 'err');
   const body = {
     name: $('naam').value.trim(),
     password: pin,
@@ -695,10 +887,8 @@ $('add').onclick = async () => {
     const dagen = p === 'dagelijks'
       ? DAGEN.map(d => d.nr)
       : [...$('dagen').querySelectorAll('input:checked')].map(i => Number(i.value));
-    if (!dagen.length) return melding('Pick at least one weekday.', 'err');
-    if (!$('dagvan').value || !$('dagtot').value) {
-      return melding('Fill in the daily time window.', 'err');
-    }
+    if (!dagen.length) return melding(T.needDay, 'err');
+    if (!$('dagvan').value || !$('dagtot').value) return melding(T.needWindow, 'err');
     body.schedule = { days: dagen, from: $('dagvan').value, until: $('dagtot').value };
   }
   $('add').disabled = true;
@@ -708,21 +898,20 @@ $('add').onclick = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    melding('Code created. It takes a minute or two before the lock knows it.', 'good');
+    melding(T.createdOk, 'good');
     $('naam').value = ''; $('pin').value = '';
     laadCodes();
   } catch (e) {
-    melding('Could not create: ' + e.message, 'err');
+    melding(vul(T.createFailed, { err: e.message }), 'err');
   }
   $('add').disabled = false;
 };
 
 (async () => {
+  laadrij();
   try {
     const j = await api('rooms');
-    if (!j.rooms.length) {
-      return melding('No locks configured yet. Add them in the add-on configuration.', 'err');
-    }
+    if (!j.rooms.length) return melding(T.noLocks, 'err');
     $('lock').innerHTML = j.rooms.map(r => '<option>' + r + '</option>').join('');
     $('lock').onchange = laadCodes;
     // standaard: vanaf nu tot morgen middag
@@ -735,7 +924,7 @@ $('add').onclick = async () => {
     $('tot').value = iso(morgen);
     laadCodes();
   } catch (e) {
-    melding('Could not fetch the locks: ' + e.message, 'err');
+    melding(vul(T.fetchLocksFailed, { err: e.message }), 'err');
   }
 })();
 </script>
@@ -743,9 +932,25 @@ $('add').onclick = async () => {
 </html>"""
 
 
+def paneel_teksten():
+    """Bouwt per taal een platte tabel voor het paneel.
+
+    De statuswoorden staan in TEKST een niveau hoger dan de paneelteksten;
+    hier worden ze samengevoegd, zodat de JavaScript alles onder een sleutel
+    kan opzoeken.
+    """
+    return {
+        taal: {**{k: v for k, v in tab.items() if k != "panel"}, **tab["panel"]}
+        for taal, tab in TEKST.items()
+    }
+
+
 @app.route("/", methods=["GET"])
 def panel():
-    return PANEL_HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
+    html = PANEL_HTML.replace("__TEKSTEN__", json.dumps(paneel_teksten())).replace(
+        "__TAAL__", TAAL
+    )
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 @app.route("/rooms", methods=["GET"])
@@ -825,7 +1030,7 @@ def _apparaat(naam):
     """Het device-blok waaronder beide entiteiten van een slot samenkomen."""
     return {
         "identifiers": [f"{MQTT_BASIS}_{naam}"],
-        "name": f"Lock {naam}",
+        "name": T["device"].format(name=naam),
         "manufacturer": "Tuya",
         "model": "Smart lock via Tuya Lock Bridge",
     }
@@ -850,7 +1055,7 @@ def publiceer_discovery(client):
             f"homeassistant/button/{MQTT_BASIS}/{naam}_open/config",
             json.dumps(
                 {
-                    "name": "Open",
+                    "name": T["button"],
                     "unique_id": f"{MQTT_BASIS}_{naam}_open",
                     "command_topic": f"{MQTT_BASIS}/{naam}/open/set",
                     "payload_press": "PRESS",
@@ -865,7 +1070,7 @@ def publiceer_discovery(client):
             f"homeassistant/sensor/{MQTT_BASIS}/{naam}_codes/config",
             json.dumps(
                 {
-                    "name": "Valid codes",
+                    "name": T["sensor"],
                     "unique_id": f"{MQTT_BASIS}_{naam}_codes",
                     "state_topic": f"{MQTT_BASIS}/{naam}/codes/state",
                     "json_attributes_topic": f"{MQTT_BASIS}/{naam}/codes/attributes",
@@ -902,12 +1107,12 @@ def publiceer_codes(client, naam):
                     "until": datetime.fromtimestamp(
                         code.get("invalid_time", 0)
                     ).isoformat(timespec="minutes"),
-                    "status": status,
+                    "status": T.get(status, status),
                     "repeats": bool(code.get("schedule_list")),
                 }
             )
 
-    geldig = tellingen.get("active", 0) + tellingen.get("waiting for lock", 0)
+    geldig = tellingen.get("active", 0) + tellingen.get("waiting", 0)
     client.publish(f"{MQTT_BASIS}/{naam}/codes/state", str(geldig), retain=True)
     client.publish(
         f"{MQTT_BASIS}/{naam}/codes/attributes",
@@ -916,7 +1121,7 @@ def publiceer_codes(client, naam):
                 "codes": regels,
                 "scheduled": tellingen.get("scheduled", 0),
                 "expired": tellingen.get("expired", 0),
-                "waiting_for_lock": tellingen.get("waiting for lock", 0),
+                "waiting_for_lock": tellingen.get("waiting", 0),
                 "updated": datetime.now().isoformat(timespec="seconds"),
             }
         ),

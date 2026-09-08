@@ -1,0 +1,57 @@
+configuration:
+  access_id:
+    name: Tuya Access ID
+    description: Het Access ID van je Cloud Development-project op iot.tuya.com.
+  access_secret:
+    name: Tuya Access Secret
+    description: Het Access Secret van hetzelfde project.
+  endpoint:
+    name: Datacenter
+    description: >-
+      Het Tuya-datacenter waar je account bij hoort. Europa is
+      https://openapi.tuyaeu.com, daarbuiten tuyaus, tuyacn of tuyain. Staat dit
+      verkeerd, dan vindt de API je apparaten niet.
+  api_token:
+    name: API-token
+    description: >-
+      Een zelfgekozen wachtwoord waarmee Home Assistant zich meldt als het deze
+      add-on over het netwerk aanroept. Kies iets langs en willekeurigs. Voor
+      het paneel en de entiteiten is het niet nodig.
+  time_zone:
+    name: Tijdzone
+    description: >-
+      De tijdzone waarin een terugkerend dagpatroon wordt uitgerekend. Laat leeg
+      om die van Home Assistant zelf te gebruiken.
+  mqtt_enabled:
+    name: Entiteiten aanmaken
+    description: >-
+      Meld per slot een knop en een sensor aan via MQTT, zodat je vanaf je
+      dashboard een deur kunt openen en de codes kunt zien.
+  mqtt_host:
+    name: MQTT-broker
+    description: >-
+      Laat leeg om de broker van Home Assistant te gebruiken; de gegevens komen
+      dan van Supervisor. Alleen invullen voor een broker daarbuiten.
+  mqtt_port:
+    name: MQTT-poort
+    description: Wordt alleen gebruikt als je zelf een broker hebt ingevuld.
+  mqtt_username:
+    name: MQTT-gebruikersnaam
+    description: Wordt alleen gebruikt als je zelf een broker hebt ingevuld.
+  mqtt_password:
+    name: MQTT-wachtwoord
+    description: Wordt alleen gebruikt als je zelf een broker hebt ingevuld.
+  refresh_minutes:
+    name: Verversingsinterval
+    description: >-
+      Om de hoeveel minuten de codesensor ververst. Elke verversing is een
+      aanroep per slot naar Tuya's cloud, en daar zit een maandbudget op.
+  locks:
+    name: Sloten
+    description: >-
+      Per slot een zelfgekozen naam, die in de entiteit en in de URL wordt
+      gebruikt, en het device-ID uit het Tuya-platform.
+network:
+  8099/tcp: >-
+    HTTP-API. Alleen nodig om de brug van buiten Home Assistant te bereiken,
+    bijvoorbeeld vanuit een rest_command. Stel eerst een API-token in.

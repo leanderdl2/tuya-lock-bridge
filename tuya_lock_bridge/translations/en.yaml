@@ -1,0 +1,57 @@
+configuration:
+  access_id:
+    name: Tuya Access ID
+    description: The Access ID of your Cloud Development project on iot.tuya.com.
+  access_secret:
+    name: Tuya Access Secret
+    description: The Access Secret belonging to the same project.
+  endpoint:
+    name: Data centre
+    description: >-
+      The Tuya data centre your account belongs to. Europe is
+      https://openapi.tuyaeu.com, elsewhere use tuyaus, tuyacn or tuyain. Get
+      this wrong and the API will not find your devices.
+  api_token:
+    name: API token
+    description: >-
+      A password of your own choosing that Home Assistant presents when it
+      calls this add-on over the network. Pick a long random string. Not needed
+      for the panel or the entities.
+  time_zone:
+    name: Time zone
+    description: >-
+      The zone a recurring daily pattern is calculated in. Leave empty to use
+      the time zone of Home Assistant itself.
+  mqtt_enabled:
+    name: Create entities
+    description: >-
+      Announce a button and a sensor per lock over MQTT, so you can open a door
+      and read the codes from your dashboard.
+  mqtt_host:
+    name: MQTT broker
+    description: >-
+      Leave empty to use the Home Assistant broker; the details then come from
+      Supervisor. Only fill this in for a broker elsewhere.
+  mqtt_port:
+    name: MQTT port
+    description: Only used when you filled in a broker of your own.
+  mqtt_username:
+    name: MQTT username
+    description: Only used when you filled in a broker of your own.
+  mqtt_password:
+    name: MQTT password
+    description: Only used when you filled in a broker of your own.
+  refresh_minutes:
+    name: Refresh interval
+    description: >-
+      How many minutes between refreshes of the code sensor. Every refresh is
+      one call per lock to Tuya's cloud, which has a monthly allowance.
+  locks:
+    name: Locks
+    description: >-
+      Per lock a name of your own choosing, used in the entity and in the URL,
+      and the device ID from the Tuya platform.
+network:
+  8099/tcp: >-
+    HTTP API. Only needed to reach the bridge from outside Home Assistant, for
+    example from a rest_command. Set an API token before you map this.

@@ -48,7 +48,7 @@ API call stops working and so does this add-on.
 | `access_secret` | Access Secret of the same project |
 | `endpoint` | The data centre your account belongs to |
 | `api_token` | A password of your own choosing that Home Assistant presents to this add-on. Pick a long random string. With no token set, the bridge refuses every request. |
-| `time_zone` | The zone a recurring daily pattern is calculated in, for example `Europe/Amsterdam` |
+| `time_zone` | The zone a recurring daily pattern is calculated in. Leave empty to use the time zone of Home Assistant itself. |
 | `mqtt_enabled` | Whether the bridge registers entities in Home Assistant |
 | `mqtt_host` … `mqtt_password` | Leave empty to use the Home Assistant broker; Supervisor then supplies the details. Only fill these in for a broker elsewhere. |
 | `refresh_minutes` | How often the code sensor refreshes. Every refresh is one call per lock to Tuya. |
@@ -71,6 +71,28 @@ locks:
 Names are lowercased. After starting, check `/rooms` to confirm your locks were
 recognised.
 
+## Language
+
+The add-on asks Home Assistant what language it is set to and follows it. There
+is nothing to configure. Dutch and English are supported; anything else falls
+back to English.
+
+The three surfaces pick their language slightly differently, on purpose:
+
+- **Entity names** follow the language of the Home Assistant *instance*.
+  Entities are shared by everyone who uses the system, so they get one name.
+- **The panel** follows the language of the *browser* looking at it, falling
+  back to the instance language. Two people can read the same panel in
+  different languages.
+- **The configuration screen** is translated by Home Assistant itself from the
+  `translations/` folder, so it follows each user's own profile setting.
+
+Note that entity IDs are derived from the name at the moment of discovery, so
+they are language-dependent: an English instance gets
+`button.lock_front_door_open`, a Dutch one `button.slot_voordeur_openen`.
+Changing the language of an existing installation renames the friendly names
+but leaves the entity IDs as they were.
+
 ## Entities in Home Assistant
 
 The add-on registers itself over MQTT and creates two entities per lock.
@@ -79,6 +101,10 @@ The add-on registers itself over MQTT and creates two entities per lock.
 |---|---|
 | `button.lock_<name>_open` | Opens the door |
 | `sensor.lock_<name>_valid_codes` | How many codes are valid right now; the attributes hold the full list with name, window and status |
+
+The status words in the sensor's attributes are translated as well; the numeric
+attributes that go with them (`scheduled`, `expired`, `waiting_for_lock`) keep
+English names so automations can rely on them.
 
 Both belong to the same device, so they end up together on the card of whatever
 area you assign the lock to. There is nothing to set up: because the add-on
