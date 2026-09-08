@@ -137,10 +137,12 @@ elsewhere.
 
 ## Endpoints
 
-Port 8099 is **not** published on your network by default; the panel and the
-entities do not need it. Map it under the add-on's *Network* section if you want
-to reach the HTTP API from outside Home Assistant, and set an `api_token` before
-you do. Every request except `/health` then requires the `X-Api-Token` header.
+Port 8099 is **not** published on your network by default, and it does not need
+to be: the panel, the entities and any `rest_command` all reach the bridge over
+Home Assistant's internal network. Map the port only if something outside Home
+Assistant has to call the API, and set an `api_token` before you do. Every
+request that arrives over the network requires the `X-Api-Token` header, except
+`/health`.
 
 | Method | Path | Does |
 |---|---|---|
@@ -189,24 +191,62 @@ and 15:00 until the window runs out. Weekdays run from 1 (Monday) through 7
 (Sunday). Both fields are optional: without `schedule` the code is valid for the
 whole period, and with `one_time` set to `true` it expires after a single use.
 
-## Wiring it into Home Assistant
+## Driving it from automations
 
-Only needed if you want to drive the bridge from automations rather than from
-the panel. In `configuration.yaml`:
+The panel and the entities cover most of what you need. For anything beyond
+that — creating a code per booking, revoking it at checkout — call the HTTP API
+from a `rest_command`.
+
+**Use the internal hostname, not a published port.** Home Assistant Core sits on
+the same internal network as the add-on and can reach it by name, so there is no
+reason to expose port 8099 on your LAN at all. The name contains an
+unpredictable part for add-ons installed from a repository, so the add-on writes
+it to its own log on every start:
+
+```
+Reachable from Home Assistant at http://a1b2c3d4-tuya-lock-bridge:8099
+```
+
+Copy that into `configuration.yaml`:
 
 ```yaml
 rest_command:
   lock_unlock:
-    url: "http://<home-assistant-ip>:8099/unlock/{{ room }}"
+    url: "http://a1b2c3d4-tuya-lock-bridge:8099/unlock/{{ room }}"
     method: POST
     headers:
       X-Api-Token: !secret lock_bridge_token
     timeout: 45
+
+  lock_book:
+    url: "http://a1b2c3d4-tuya-lock-bridge:8099/book"
+    method: POST
+    content_type: "application/json"
+    headers:
+      X-Api-Token: !secret lock_bridge_token
+    payload: >-
+      {"room": "{{ room }}", "last4": "{{ last4 }}", "name": "{{ name }}",
+       "effective_time": {{ effective_time }}, "invalid_time": {{ invalid_time }}}
+    timeout: 45
 ```
 
-Keep the timeout generous. The first request after the add-on starts still has
-to fetch a token from Tuya and takes noticeably longer; with a tight timeout it
-is precisely that first call that fails every time.
+Read the result with `response_variable`; the content is parsed JSON already, so
+`.content.success` and `.content.result` work without `from_json`.
+
+**Keep the timeout generous.** The first request after the add-on starts still
+has to fetch a token from Tuya and takes noticeably longer; with a tight timeout
+it is precisely that first call that fails every time. Forty-five seconds is a
+sensible floor.
+
+**Check afterwards rather than trusting the answer.** Tuya sometimes discards a
+freshly created code within minutes — see the quirks below — so read
+`/codes/<lock>` back instead of assuming that a `success: true` means the code
+is really on the lock.
+
+If you do need the API from outside Home Assistant, map port 8099 under the
+add-on's *Network* section and set an `api_token` first. Requests arriving over
+the network always need the `X-Api-Token` header; the panel does not, because
+ingress authenticates the user before the request ever reaches the bridge.
 
 ## Tuya quirks worth knowing
 

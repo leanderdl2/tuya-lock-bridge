@@ -66,6 +66,31 @@ def ha_config():
         return {}
 
 
+def eigen_hostnaam():
+    """De naam waaronder deze add-on op het interne netwerk bereikbaar is.
+
+    Home Assistant Core zit op datzelfde netwerk en kan de add-on dus gewoon op
+    naam aanroepen, zonder dat er een poort op het LAN gepubliceerd hoeft te
+    worden. Die naam bevat voor add-ons uit een store een onvoorspelbaar stuk,
+    dus we zoeken hem op en zetten hem in het log - anders kan niemand hem
+    raden.
+    """
+    token = os.environ.get("SUPERVISOR_TOKEN")
+    if not token:
+        return None
+    try:
+        r = requests.get(
+            "http://supervisor/addons/self/info",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()["data"].get("hostname")
+    except Exception as e:
+        log.debug("could not look up our own hostname: %s", e)
+        return None
+
+
 HA = ha_config()
 
 # Teksten die de gebruiker te zien krijgt, per taal. De taal komt van Home
@@ -1247,6 +1272,16 @@ if __name__ == "__main__":
             log.exception(
                 "MQTT: setup failed - the bridge keeps running without entities"
             )
+
+    # De interne naam in het log zetten, zodat je hem in een rest_command kunt
+    # plakken zonder de poort op je netwerk te hoeven publiceren.
+    hostnaam = eigen_hostnaam()
+    if hostnaam:
+        log.info(
+            "Reachable from Home Assistant at http://%s:8099 - use that in a "
+            "rest_command and leave the port unmapped",
+            hostnaam,
+        )
 
     log.info("Tuya Lock Bridge listening on port 8099 (waitress)")
     serve(app, host="0.0.0.0", port=8099)
