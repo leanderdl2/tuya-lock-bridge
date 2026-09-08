@@ -20,6 +20,8 @@ NV-ACCESS-PIN-RFID-W, its lock entities did not actually open the door. Your
 mileage may differ, and if Xtend Tuya covers your case then you do not need
 this.
 
+![The Locks panel: the codes on a lock, and the form to create a new one](images/panel.png)
+
 ## What you get
 
 - A **Locks** panel in the sidebar to manage codes by hand
