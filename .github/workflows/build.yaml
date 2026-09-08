@@ -7,11 +7,25 @@ name: Build and publish
 # The image name and the version tag are read from tuya_lock_bridge/config.yaml,
 # so raising the version there is all it takes to publish a new release.
 
+# Wijzigingen die alleen tekst raken slaan de build over. DOCS.md zit niet in
+# het image - Supervisor leest hem uit de repository - dus daar hoeft niets voor
+# gebouwd te worden. Verandert er iets aan de add-on zelf in dezelfde commit,
+# dan draait hij gewoon. Met de hand starten kan altijd via workflow_dispatch.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - LICENSE
+      - .gitignore
+      - .gitattributes
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - LICENSE
+      - .gitignore
+      - .gitattributes
   workflow_dispatch:
 
 permissions:
