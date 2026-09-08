@@ -31,7 +31,7 @@ Codes can be plain, single-use, or carry a recurring daily pattern such as
 3. Fill in your Tuya Access ID, Access Secret and your locks.
 4. Start it.
 
-Prebuilt images are published for `amd64`, `aarch64` and `armv7`, so there is
+Prebuilt images are published for `amd64` and `aarch64`, so there is
 nothing to compile on your own machine.
 
 Full setup instructions, the API reference, and a collection of Tuya quirks that

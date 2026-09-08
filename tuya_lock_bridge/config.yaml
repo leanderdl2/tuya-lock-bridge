@@ -6,10 +6,12 @@ url: "https://github.com/leanderdl2/tuya-lock-bridge"
 # Prebuilt images from GitHub Container Registry. Supervisor appends the version
 # above as the tag, so publish a matching image whenever you raise the version.
 image: "ghcr.io/leanderdl2/tuya-lock-bridge"
+# armv7 ontbreekt met opzet: Home Assistant's bouwacties koppelen elke
+# architectuur aan een echte GitHub-runner, en die bestaat voor 32-bits ARM
+# niet meer. Vooraf gebouwde images zijn er daardoor alleen voor 64-bits.
 arch:
   - amd64
   - aarch64
-  - armv7
 init: false
 # Leest via Supervisor's proxy de taal en tijdzone van Home Assistant, zodat
 # de interface zich vanzelf aanpast en er niets ingesteld hoeft te worden.
