@@ -52,10 +52,10 @@ def _load_locks(cfg):
         naam = (entry.get("name") or "").strip().lower()
         device_id = (entry.get("device_id") or "").strip()
         if not naam or not device_id:
-            log.warning("Slot overgeslagen: naam of device_id ontbreekt (%s)", entry)
+            log.warning("Lock skipped: name or device_id is missing (%s)", entry)
             continue
         if naam in locks:
-            log.warning("Dubbele slotnaam '%s' - alleen de eerste wordt gebruikt", naam)
+            log.warning("Duplicate lock name '%s' - only the first one is used", naam)
             continue
         locks[naam] = device_id
     return locks
@@ -65,13 +65,13 @@ DEVICES = _load_locks(CFG)
 
 if not DEVICES:
     log.error(
-        "Geen sloten geconfigureerd. Vul bij de add-on-configuratie minstens "
-        "een slot in met een naam en het Tuya device-ID."
+        "No locks configured. Add at least one lock with a name and its Tuya "
+        "device ID in the add-on configuration."
     )
 if not CFG.get("api_token"):
     log.error(
-        "Geen api_token ingesteld - alle verzoeken worden geweigerd. Kies zelf "
-        "een lange willekeurige tekst en gebruik dezelfde in Home Assistant."
+        "No api_token set - every request will be refused. Pick a long random "
+        "string and use the same one in Home Assistant."
     )
 
 app = Flask(__name__)
@@ -103,8 +103,8 @@ def resolve_device(room):
     device_id = DEVICES.get((room or "").strip().lower())
     if not device_id:
         raise ValueError(
-            f"onbekend slot '{room}' - geconfigureerd zijn: "
-            f"{', '.join(sorted(DEVICES)) or '(geen)'}"
+            f"unknown lock '{room}' - configured are: "
+            f"{', '.join(sorted(DEVICES)) or '(none)'}"
         )
     return device_id
 
@@ -112,7 +112,7 @@ def resolve_device(room):
 def get_ticket(api, device_id):
     resp = api.post(f"/v1.0/smart-lock/devices/{device_id}/password-ticket")
     if not resp.get("success"):
-        raise RuntimeError(f"ticket ophalen mislukt: {resp}")
+        raise RuntimeError(f"could not obtain a ticket: {resp}")
     return resp["result"]
 
 
@@ -133,7 +133,7 @@ def encrypt_password(password_plain, ticket_key_str):
 def parse_tijdstip(waarde):
     """Zet '11:00' of een aantal minuten na middernacht om naar minuten."""
     if isinstance(waarde, bool):
-        raise ValueError("ongeldig tijdstip")
+        raise ValueError("invalid time of day")
     if isinstance(waarde, (int, float)):
         minuten = int(waarde)
     else:
@@ -144,7 +144,7 @@ def parse_tijdstip(waarde):
         else:
             minuten = int(tekst)
     if not 0 <= minuten <= 1439:
-        raise ValueError(f"tijdstip '{waarde}' valt buiten 00:00-23:59")
+        raise ValueError(f"time of day '{waarde}' falls outside 00:00-23:59")
     return minuten
 
 
@@ -162,19 +162,19 @@ def build_schedule(schedule):
     """
     dagen = schedule.get("days") or []
     if not dagen:
-        raise ValueError("kies minstens een weekdag voor het dagpatroon")
+        raise ValueError("pick at least one weekday for the daily pattern")
     masker = 0
     for dag in dagen:
         dag = int(dag)
         if not 1 <= dag <= 7:
             raise ValueError(
-                f"ongeldige weekdag {dag} - gebruik 1 (maandag) t/m 7 (zondag)"
+                f"invalid weekday {dag} - use 1 (Monday) through 7 (Sunday)"
             )
         masker |= 1 << (dag % 7)
     van = parse_tijdstip(schedule.get("from", 0))
     tot = parse_tijdstip(schedule.get("until", 1439))
     if tot <= van:
-        raise ValueError("de eindtijd van het dagpatroon ligt niet na de begintijd")
+        raise ValueError("the daily pattern ends before it starts")
     # all_day bewust op false: met true laat Tuya het hele blok vallen (de code
     # komt dan zonder schedule_list terug en is dus de klok rond geldig). Een
     # volle dag geef je daarom op als 00:00 tot 23:59.
@@ -205,7 +205,7 @@ def maak_code(
     11:00 tot 15:00.
     """
     if invalid_time <= effective_time:
-        raise ValueError("de einddatum ligt niet na de begindatum")
+        raise ValueError("the end date is not after the start date")
 
     with TUYA_LOCK:
         api = get_api()
@@ -246,7 +246,7 @@ def haal_codes(device_id):
     with TUYA_LOCK:
         resp = get_api().get(f"/v1.0/devices/{device_id}/door-lock/temp-passwords")
     if not resp.get("success"):
-        raise RuntimeError(f"codelijst ophalen mislukt: {resp}")
+        raise RuntimeError(f"could not fetch the code list: {resp}")
     return resp.get("result") or []
 
 
@@ -258,14 +258,14 @@ def code_status(code, nu):
     verlopen codes heen en weer tussen 19 en 17.
     """
     if code.get("phase") == 17:
-        return "ingetrokken"
+        return "revoked"
     if code.get("invalid_time", 0) < nu:
-        return "verlopen"
+        return "expired"
     if code.get("effective_time", 0) > nu:
-        return "gepland"
+        return "scheduled"
     if code.get("phase") == 12:
-        return "wacht op slot"
-    return "actief"
+        return "waiting for lock"
+    return "active"
 
 
 # Het interne Docker-netwerk van Home Assistant is 172.30.32.0/23. Supervisor en
@@ -305,18 +305,18 @@ def check_auth():
         # aan deze regel meteen te zien of Supervisor vanaf een ander adres
         # binnenkomt dan het netwerk hierboven, in plaats van dat je moet gokken.
         log.warning(
-            "geweigerd: %s %s vanaf %s (ingress-header %s, token %s)",
+            "refused: %s %s from %s (ingress header %s, token %s)",
             request.method,
             request.path,
             req_adres(),
-            "aanwezig" if request.headers.get("X-Ingress-Path") else "afwezig",
-            "onjuist" if token else "ontbreekt",
+            "present" if request.headers.get("X-Ingress-Path") else "absent",
+            "wrong" if token else "missing",
         )
         return jsonify({"success": False, "error": "unauthorized"}), 401
 
 
 def req_adres():
-    return request.remote_addr or "onbekend"
+    return request.remote_addr or "unknown"
 
 
 @app.errorhandler(ValueError)
@@ -328,7 +328,7 @@ def handle_value_error(e):
 
 @app.errorhandler(Exception)
 def handle_error(e):
-    log.exception("onverwachte fout")
+    log.exception("unexpected error")
     return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -342,7 +342,7 @@ def book():
     data = request.get_json(force=True)
     device_id = resolve_device(data["room"])
     last4 = str(data["last4"]).zfill(4)
-    name = data.get("name") or f"Boeking-{last4}"
+    name = data.get("name") or f"Booking-{last4}"
     effective_time = int(data["effective_time"])
     invalid_time = int(data["invalid_time"])
 
@@ -381,7 +381,7 @@ def create_code(room):
     invalid_time = int(data["invalid_time"])
 
     if not password_plain.isdigit():
-        raise ValueError("pincode mag alleen cijfers bevatten")
+        raise ValueError("the PIN may only contain digits")
 
     resp = maak_code(
         device_id,
@@ -437,11 +437,11 @@ def delete_code_record(room, password_id):
 
 
 PANEL_HTML = """<!doctype html>
-<html lang="nl">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sloten</title>
+<title>Locks</title>
 <style>
   :root { color-scheme: light dark; --line:#d5d8dd; --muted:#6b7280; --bg:#fff; --fg:#111; --accent:#03a9f4; }
   @media (prefers-color-scheme: dark) {
@@ -484,53 +484,53 @@ PANEL_HTML = """<!doctype html>
 </style>
 </head>
 <body>
-<h1>Toegangscodes</h1>
+<h1>Access codes</h1>
 <div id="msg"></div>
 
 <div class="card">
   <div class="row" style="margin-bottom:0; align-items:flex-end">
-    <div><label for="lock">Slot</label><select id="lock"></select></div>
-    <div style="flex:0 0 auto"><button id="open">Deur openen</button></div>
+    <div><label for="lock">Lock</label><select id="lock"></select></div>
+    <div style="flex:0 0 auto"><button id="open">Open the door</button></div>
   </div>
 </div>
 
-<h2>Actieve codes</h2>
+<h2>Codes on this lock</h2>
 <div class="card">
   <table>
-    <thead><tr><th>Naam</th><th>Geldig van</th><th>Geldig tot</th><th>Status</th><th></th></tr></thead>
-    <tbody id="rows"><tr><td colspan="5">Laden…</td></tr></tbody>
+    <thead><tr><th>Name</th><th>Valid from</th><th>Valid until</th><th>Status</th><th></th></tr></thead>
+    <tbody id="rows"><tr><td colspan="5">Loading…</td></tr></tbody>
   </table>
 </div>
 
-<h2>Nieuwe code</h2>
+<h2>New code</h2>
 <div class="card">
   <div class="row">
-    <div><label for="naam">Naam</label><input id="naam" placeholder="Schoonmaker"></div>
-    <div><label for="pin">Pincode</label><input id="pin" inputmode="numeric" placeholder="123456"></div>
+    <div><label for="naam">Name</label><input id="naam" placeholder="Cleaner"></div>
+    <div><label for="pin">PIN</label><input id="pin" inputmode="numeric" placeholder="123456"></div>
   </div>
   <div class="row">
-    <div><label for="van">Geldig vanaf</label><input id="van" type="datetime-local"></div>
-    <div><label for="tot">Geldig tot</label><input id="tot" type="datetime-local"></div>
+    <div><label for="van">Valid from</label><input id="van" type="datetime-local"></div>
+    <div><label for="tot">Valid until</label><input id="tot" type="datetime-local"></div>
   </div>
   <div class="row">
     <div>
-      <label for="patroon">Patroon</label>
+      <label for="patroon">Pattern</label>
       <select id="patroon">
-        <option value="doorlopend">Doorlopend geldig in die periode</option>
-        <option value="dagelijks">Elke dag een vast tijdvenster</option>
-        <option value="dagen">Alleen op gekozen weekdagen</option>
-        <option value="eenmalig">Eenmalig - vervalt na gebruik</option>
+        <option value="doorlopend">Valid throughout that period</option>
+        <option value="dagelijks">A fixed window every day</option>
+        <option value="dagen">Only on chosen weekdays</option>
+        <option value="eenmalig">Single use - expires once used</option>
       </select>
     </div>
   </div>
   <div class="row" id="dagenrij" hidden>
-    <div style="flex:1 1 100%"><label>Dagen</label><div id="dagen" class="dagen"></div></div>
+    <div style="flex:1 1 100%"><label>Days</label><div id="dagen" class="dagen"></div></div>
   </div>
   <div class="row" id="urenrij" hidden>
-    <div><label for="dagvan">Elke dag vanaf</label><input id="dagvan" type="time" value="11:00"></div>
-    <div><label for="dagtot">Elke dag tot</label><input id="dagtot" type="time" value="15:00"></div>
+    <div><label for="dagvan">Every day from</label><input id="dagvan" type="time" value="11:00"></div>
+    <div><label for="dagtot">Every day until</label><input id="dagtot" type="time" value="15:00"></div>
   </div>
-  <button id="add">Code aanmaken</button>
+  <button id="add">Create code</button>
 </div>
 
 <script>
@@ -553,20 +553,20 @@ async function api(pad, opties) {
   return j;
 }
 
-const fmt = ts => new Date(ts * 1000).toLocaleString('nl-NL',
+const fmt = ts => new Date(ts * 1000).toLocaleString(undefined,
   { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 // Weekdagen zoals wij ze versturen (1 = maandag t/m 7 = zondag) en zoals Tuya
 // ze TERUGGEEFT. Dat zijn verschillende bitwaarden: bij het versturen is
 // zondag bit 0, in het antwoord is de bitvolgorde omgedraaid en is zondag 128.
 const DAGEN = [
-  { nr: 1, naam: 'ma', terug: 64 },
-  { nr: 2, naam: 'di', terug: 32 },
-  { nr: 3, naam: 'wo', terug: 16 },
-  { nr: 4, naam: 'do', terug: 8 },
-  { nr: 5, naam: 'vr', terug: 4 },
-  { nr: 6, naam: 'za', terug: 2 },
-  { nr: 7, naam: 'zo', terug: 128 }
+  { nr: 1, naam: 'Mon', terug: 64 },
+  { nr: 2, naam: 'Tue', terug: 32 },
+  { nr: 3, naam: 'Wed', terug: 16 },
+  { nr: 4, naam: 'Thu', terug: 8 },
+  { nr: 5, naam: 'Fri', terug: 4 },
+  { nr: 6, naam: 'Sat', terug: 2 },
+  { nr: 7, naam: 'Sun', terug: 128 }
 ];
 
 // De uren in een teruggelezen schedule staan als HHMM: 1100 betekent 11:00.
@@ -574,32 +574,32 @@ const uur = v => String(v).padStart(4, '0').replace(/(\\d\\d)(\\d\\d)/, '$1:$2')
 
 function patroonTekst(code) {
   const s = (code.schedule_list || [])[0];
-  const eenmalig = code.type === 1 ? 'eenmalig' : '';
+  const eenmalig = code.type === 1 ? 'single use' : '';
   if (!s) return eenmalig;
   const dagen = DAGEN.filter(d => s.working_day & d.terug).map(d => d.naam);
-  const welke = dagen.length === 7 ? 'elke dag' : dagen.join(' ');
+  const welke = dagen.length === 7 ? 'every day' : dagen.join(' ');
   const tijd = uur(s.effective_time) + '-' + uur(s.invalid_time);
   return [welke + ' ' + tijd, eenmalig].filter(Boolean).join(', ');
 }
 
 function status(code, nu) {
-  if (code.phase === 17) return ['ingetrokken', 'off'];
-  if (code.invalid_time < nu) return ['verlopen', 'off'];
-  if (code.effective_time > nu) return ['gepland', 'wait'];
-  if (code.phase === 12) return ['wacht op slot', 'wait'];
-  return ['actief', 'ok'];
+  if (code.phase === 17) return ['revoked', 'off'];
+  if (code.invalid_time < nu) return ['expired', 'off'];
+  if (code.effective_time > nu) return ['scheduled', 'wait'];
+  if (code.phase === 12) return ['waiting for lock', 'wait'];
+  return ['active', 'ok'];
 }
 
 async function laadCodes() {
   const slot = $('lock').value;
   if (!slot) return;
-  $('rows').innerHTML = '<tr><td colspan="5">Laden…</td></tr>';
+  $('rows').innerHTML = '<tr><td colspan="5">Loading…</td></tr>';
   try {
     const j = await api('codes/' + slot);
     const nu = Math.floor(Date.now() / 1000);
     const lijst = (j.result || []).slice().sort((a, b) => b.effective_time - a.effective_time);
     if (!lijst.length) {
-      $('rows').innerHTML = '<tr><td colspan="5">Geen codes op dit slot.</td></tr>';
+      $('rows').innerHTML = '<tr><td colspan="5">No codes on this lock.</td></tr>';
       return;
     }
     $('rows').innerHTML = '';
@@ -622,44 +622,44 @@ async function laadCodes() {
       }
       const knop = document.createElement('button');
       knop.className = 'sec';
-      knop.textContent = c.invalid_time < nu || c.phase === 17 ? 'Uit lijst' : 'Intrekken';
+      knop.textContent = c.invalid_time < nu || c.phase === 17 ? 'Remove' : 'Revoke';
       knop.onclick = () => verwijder(slot, c, knop);
       tr.lastElementChild.appendChild(knop);
       $('rows').appendChild(tr);
     }
   } catch (e) {
-    melding('Ophalen mislukt: ' + e.message, 'err');
-    $('rows').innerHTML = '<tr><td colspan="5">Kon de codes niet ophalen.</td></tr>';
+    melding('Could not load: ' + e.message, 'err');
+    $('rows').innerHTML = '<tr><td colspan="5">Could not load the codes.</td></tr>';
   }
 }
 
 async function verwijder(slot, code, knop) {
   const verlopen = code.invalid_time < Math.floor(Date.now() / 1000) || code.phase === 17;
   const vraag = verlopen
-    ? 'Record van "' + code.name + '" uit de lijst verwijderen?'
-    : 'Code "' + code.name + '" intrekken? Die werkt daarna niet meer.';
+    ? 'Remove the record of "' + code.name + '" from the list?'
+    : 'Revoke code "' + code.name + '"? It will stop working.';
   if (!confirm(vraag)) return;
   knop.disabled = true;
   try {
     const pad = 'codes/' + slot + '/' + code.id + (verlopen ? '/record' : '');
     await api(pad, { method: 'DELETE' });
-    melding(verlopen ? 'Record verwijderd.' : 'Code ingetrokken.', 'good');
+    melding(verlopen ? 'Record removed.' : 'Code revoked.', 'good');
     laadCodes();
   } catch (e) {
-    melding('Mislukt: ' + e.message, 'err');
+    melding('Failed: ' + e.message, 'err');
     knop.disabled = false;
   }
 }
 
 $('open').onclick = async () => {
   const slot = $('lock').value;
-  if (!slot || !confirm('Het slot van "' + slot + '" nu openen?')) return;
+  if (!slot || !confirm('Open the door of "' + slot + '" now?')) return;
   $('open').disabled = true;
   try {
     await api('unlock/' + slot, { method: 'POST' });
-    melding('Deur geopend.', 'good');
+    melding('Door opened.', 'good');
   } catch (e) {
-    melding('Openen mislukt: ' + e.message, 'err');
+    melding('Could not open: ' + e.message, 'err');
   }
   $('open').disabled = false;
 };
@@ -680,8 +680,8 @@ $('add').onclick = async () => {
   const slot = $('lock').value;
   const pin = $('pin').value.trim();
   const van = $('van').value, tot = $('tot').value;
-  if (!/^[0-9]+$/.test(pin)) return melding('Vul een pincode van alleen cijfers in.', 'err');
-  if (!van || !tot) return melding('Vul een begin- en eindtijd in.', 'err');
+  if (!/^[0-9]+$/.test(pin)) return melding('Enter a PIN of digits only.', 'err');
+  if (!van || !tot) return melding('Enter a start and end time.', 'err');
   const body = {
     name: $('naam').value.trim(),
     password: pin,
@@ -695,9 +695,9 @@ $('add').onclick = async () => {
     const dagen = p === 'dagelijks'
       ? DAGEN.map(d => d.nr)
       : [...$('dagen').querySelectorAll('input:checked')].map(i => Number(i.value));
-    if (!dagen.length) return melding('Kies minstens een weekdag.', 'err');
+    if (!dagen.length) return melding('Pick at least one weekday.', 'err');
     if (!$('dagvan').value || !$('dagtot').value) {
-      return melding('Vul het dagelijkse tijdvenster in.', 'err');
+      return melding('Fill in the daily time window.', 'err');
     }
     body.schedule = { days: dagen, from: $('dagvan').value, until: $('dagtot').value };
   }
@@ -708,11 +708,11 @@ $('add').onclick = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    melding('Code aangemaakt. Het duurt 1 tot 2 minuten voor het slot hem kent.', 'good');
+    melding('Code created. It takes a minute or two before the lock knows it.', 'good');
     $('naam').value = ''; $('pin').value = '';
     laadCodes();
   } catch (e) {
-    melding('Aanmaken mislukt: ' + e.message, 'err');
+    melding('Could not create: ' + e.message, 'err');
   }
   $('add').disabled = false;
 };
@@ -721,7 +721,7 @@ $('add').onclick = async () => {
   try {
     const j = await api('rooms');
     if (!j.rooms.length) {
-      return melding('Nog geen sloten geconfigureerd. Vul ze in bij de add-on-configuratie.', 'err');
+      return melding('No locks configured yet. Add them in the add-on configuration.', 'err');
     }
     $('lock').innerHTML = j.rooms.map(r => '<option>' + r + '</option>').join('');
     $('lock').onchange = laadCodes;
@@ -735,7 +735,7 @@ $('add').onclick = async () => {
     $('tot').value = iso(morgen);
     laadCodes();
   } catch (e) {
-    melding('Kon de sloten niet ophalen: ' + e.message, 'err');
+    melding('Could not fetch the locks: ' + e.message, 'err');
   }
 })();
 </script>
@@ -803,8 +803,8 @@ def mqtt_instellingen():
     token = os.environ.get("SUPERVISOR_TOKEN")
     if not token:
         raise RuntimeError(
-            "geen SUPERVISOR_TOKEN gevonden en geen mqtt_host ingevuld - vul de "
-            "brokergegevens handmatig in bij de add-on-configuratie"
+            "no SUPERVISOR_TOKEN found and no mqtt_host set - fill in the broker "
+            "details by hand in the add-on configuration"
         )
     r = requests.get(
         "http://supervisor/services/mqtt",
@@ -825,7 +825,7 @@ def _apparaat(naam):
     """Het device-blok waaronder beide entiteiten van een slot samenkomen."""
     return {
         "identifiers": [f"{MQTT_BASIS}_{naam}"],
-        "name": f"Slot {naam}",
+        "name": f"Lock {naam}",
         "manufacturer": "Tuya",
         "model": "Smart lock via Tuya Lock Bridge",
     }
@@ -850,7 +850,7 @@ def publiceer_discovery(client):
             f"homeassistant/button/{MQTT_BASIS}/{naam}_open/config",
             json.dumps(
                 {
-                    "name": "Openen",
+                    "name": "Open",
                     "unique_id": f"{MQTT_BASIS}_{naam}_open",
                     "command_topic": f"{MQTT_BASIS}/{naam}/open/set",
                     "payload_press": "PRESS",
@@ -865,7 +865,7 @@ def publiceer_discovery(client):
             f"homeassistant/sensor/{MQTT_BASIS}/{naam}_codes/config",
             json.dumps(
                 {
-                    "name": "Geldige codes",
+                    "name": "Valid codes",
                     "unique_id": f"{MQTT_BASIS}_{naam}_codes",
                     "state_topic": f"{MQTT_BASIS}/{naam}/codes/state",
                     "json_attributes_topic": f"{MQTT_BASIS}/{naam}/codes/attributes",
@@ -878,7 +878,7 @@ def publiceer_discovery(client):
             ),
             retain=True,
         )
-    log.info("MQTT: entiteiten aangemeld voor %s", ", ".join(sorted(DEVICES)))
+    log.info("MQTT: entities announced for %s", ", ".join(sorted(DEVICES)))
 
 
 def publiceer_codes(client, naam):
@@ -895,29 +895,29 @@ def publiceer_codes(client, naam):
         if len(regels) < 25:
             regels.append(
                 {
-                    "naam": code.get("name"),
-                    "van": datetime.fromtimestamp(
+                    "name": code.get("name"),
+                    "from": datetime.fromtimestamp(
                         code.get("effective_time", 0)
                     ).isoformat(timespec="minutes"),
-                    "tot": datetime.fromtimestamp(
+                    "until": datetime.fromtimestamp(
                         code.get("invalid_time", 0)
                     ).isoformat(timespec="minutes"),
                     "status": status,
-                    "herhaling": bool(code.get("schedule_list")),
+                    "repeats": bool(code.get("schedule_list")),
                 }
             )
 
-    geldig = tellingen.get("actief", 0) + tellingen.get("wacht op slot", 0)
+    geldig = tellingen.get("active", 0) + tellingen.get("waiting for lock", 0)
     client.publish(f"{MQTT_BASIS}/{naam}/codes/state", str(geldig), retain=True)
     client.publish(
         f"{MQTT_BASIS}/{naam}/codes/attributes",
         json.dumps(
             {
                 "codes": regels,
-                "gepland": tellingen.get("gepland", 0),
-                "verlopen": tellingen.get("verlopen", 0),
-                "wacht_op_slot": tellingen.get("wacht op slot", 0),
-                "bijgewerkt": datetime.now().isoformat(timespec="seconds"),
+                "scheduled": tellingen.get("scheduled", 0),
+                "expired": tellingen.get("expired", 0),
+                "waiting_for_lock": tellingen.get("waiting for lock", 0),
+                "updated": datetime.now().isoformat(timespec="seconds"),
             }
         ),
         retain=True,
@@ -930,7 +930,7 @@ def _veilig_publiceer(naam):
     try:
         publiceer_codes(_mqtt_client, naam)
     except Exception:
-        log.exception("MQTT: codes van %s niet kunnen publiceren", naam)
+        log.exception("MQTT: could not publish the codes of %s", naam)
 
 
 def meld_wijziging(room):
@@ -949,9 +949,9 @@ def meld_wijziging(room):
 def _open_via_mqtt(naam):
     try:
         resp = ontgrendel(resolve_device(naam))
-        log.info("MQTT: %s geopend, antwoord success=%s", naam, resp.get("success"))
+        log.info("MQTT: opened %s, response success=%s", naam, resp.get("success"))
     except Exception:
-        log.exception("MQTT: openen van %s mislukt", naam)
+        log.exception("MQTT: failed to open %s", naam)
 
 
 def _op_bericht(client, userdata, bericht):
@@ -959,7 +959,7 @@ def _op_bericht(client, userdata, bericht):
     if len(delen) == 4 and delen[0] == MQTT_BASIS and delen[2:] == ["open", "set"]:
         naam = delen[1]
         if naam not in DEVICES:
-            log.warning("MQTT: opdracht voor onbekend slot '%s'", naam)
+            log.warning("MQTT: command for unknown lock '%s'", naam)
             return
         # Bewust niet in deze thread afhandelen: het ontgrendelen praat met
         # Tuya's cloud en kan tientallen seconden duren. Blijven we hier hangen,
@@ -970,12 +970,12 @@ def _op_bericht(client, userdata, bericht):
 
 def _op_verbinding(client, userdata, verbindingsvlaggen, reden, eigenschappen=None):
     if reden.is_failure:
-        log.error("MQTT: verbinden geweigerd (%s)", reden)
+        log.error("MQTT: connection refused (%s)", reden)
         return
     client.publish(STATUS_TOPIC, "online", retain=True)
     publiceer_discovery(client)
     client.subscribe(f"{MQTT_BASIS}/+/open/set")
-    log.info("MQTT: verbonden en geabonneerd op opdrachten")
+    log.info("MQTT: connected and subscribed to commands")
 
 
 def _ververs_lus(client, interval):
@@ -984,7 +984,7 @@ def _ververs_lus(client, interval):
             try:
                 publiceer_codes(client, naam)
             except Exception:
-                log.exception("MQTT: codes van %s niet kunnen publiceren", naam)
+                log.exception("MQTT: could not publish the codes of %s", naam)
         time.sleep(interval)
 
 
@@ -994,7 +994,12 @@ def start_mqtt():
     import paho.mqtt.client as mqtt
 
     instellingen = mqtt_instellingen()
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=MQTT_BASIS)
+    client = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION2,
+        # Unieke id: draaien er per ongeluk twee kopieen tegen dezelfde broker,
+        # dan schoppen ze elkaar met een gedeelde id eindeloos van de lijn.
+        client_id=f"{MQTT_BASIS}_{os.urandom(4).hex()}",
+    )
     if instellingen["username"]:
         client.username_pw_set(instellingen["username"], instellingen["password"])
 
@@ -1015,7 +1020,7 @@ def start_mqtt():
         target=_ververs_lus, args=(client, minuten * 60), daemon=True
     ).start()
     log.info(
-        "MQTT: verbonden met %s:%s, codes worden elke %s minuten ververst",
+        "MQTT: connected to %s:%s, codes refresh every %s minutes",
         instellingen["host"],
         instellingen["port"],
         minuten,
@@ -1035,8 +1040,8 @@ if __name__ == "__main__":
             # Geen reden om de hele brug te laten vallen: de HTTP-API en het
             # paneel werken prima zonder MQTT. Alleen de entiteiten ontbreken.
             log.exception(
-                "MQTT: opzetten mislukt - de brug draait verder zonder entiteiten"
+                "MQTT: setup failed - the bridge keeps running without entities"
             )
 
-    log.info("Tuya Lock Bridge start op poort 8099 (waitress)")
+    log.info("Tuya Lock Bridge listening on port 8099 (waitress)")
     serve(app, host="0.0.0.0", port=8099)

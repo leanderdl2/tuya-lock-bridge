@@ -77,8 +77,8 @@ The add-on registers itself over MQTT and creates two entities per lock.
 
 | Entity | Does |
 |---|---|
-| `button.<lock>_openen` | Opens the door |
-| `sensor.<lock>_geldige_codes` | How many codes are valid right now; the attributes hold the full list with name, window and status |
+| `button.lock_<name>_open` | Opens the door |
+| `sensor.lock_<name>_valid_codes` | How many codes are valid right now; the attributes hold the full list with name, window and status |
 
 Both belong to the same device, so they end up together on the card of whatever
 area you assign the lock to. There is nothing to set up: because the add-on
