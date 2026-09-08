@@ -1,0 +1,74 @@
+name: "Tuya Lock Bridge"
+version: "1.0.0"
+slug: "tuya_lock_bridge"
+description: "Control Tuya smart locks from Home Assistant: unlock remotely and manage temporary access codes"
+url: "https://github.com/leanderdl2/tuya-lock-bridge"
+# Prebuilt images from GitHub Container Registry. Supervisor appends the version
+# above as the tag, so publish a matching image whenever you raise the version.
+image: "ghcr.io/leanderdl2/tuya-lock-bridge"
+arch:
+  - amd64
+  - aarch64
+  - armv7
+init: false
+# Supervisor hands over the broker details once an add-on asks for MQTT, so the
+# user does not have to fill in host, port or credentials.
+services:
+  - mqtt:need
+startup: application
+boot: auto
+# Own panel in the Home Assistant sidebar. Supervisor authenticates the user
+# and forwards the traffic to the same port.
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:lock-smart
+panel_title: "Locks"
+# Deliberately not published on the local network by default. The panel and the
+# entities work without it. Only map this port if you want to reach the HTTP API
+# from outside Home Assistant - for example from rest_command - and set an
+# api_token before you do.
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: "HTTP API - only needed to reach the bridge from outside Home Assistant"
+options:
+  access_id: ""
+  access_secret: ""
+  endpoint: "https://openapi.tuyaeu.com"
+  api_token: ""
+  time_zone: "Europe/Amsterdam"
+  # Leave the mqtt fields empty to use the Home Assistant broker; Supervisor
+  # then supplies host, port and credentials by itself.
+  mqtt_enabled: true
+  mqtt_host: ""
+  mqtt_port: 1883
+  mqtt_username: ""
+  mqtt_password: ""
+  refresh_minutes: 5
+  locks:
+    - name: ""
+      device_id: ""
+schema:
+  access_id: str
+  access_secret: password
+  # Deliberately a plain text field rather than list(...): the URLs contain
+  # colons and slashes, which can trip up Supervisor's schema validation - and
+  # a config.yaml that fails to validate is ignored without a word, leaving the
+  # previous definition in place.
+  # Valid values: https://openapi.tuyaeu.com (Europe),
+  # https://openapi.tuyaus.com, https://openapi.tuyacn.com,
+  # https://openapi.tuyain.com
+  endpoint: str
+  api_token: password
+  time_zone: str
+  mqtt_enabled: bool
+  mqtt_host: str
+  mqtt_port: int
+  mqtt_username: str
+  mqtt_password: password
+  # How often the code sensor refreshes. Every refresh is one call per lock to
+  # Tuya's cloud, and your project has a monthly allowance.
+  refresh_minutes: int
+  locks:
+    - name: str
+      device_id: str

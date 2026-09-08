@@ -1,0 +1,6 @@
+flask
+waitress
+tuya-connector-python
+pycryptodome
+requests
+paho-mqtt==2.1.0

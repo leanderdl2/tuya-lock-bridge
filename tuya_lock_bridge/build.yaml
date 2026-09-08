@@ -1,0 +1,9 @@
+# python:3.12-alpine publishes amd64, arm64 and armv7 images, so the same base
+# works for every architecture this add-on supports.
+build_from:
+  amd64: "python:3.12-alpine"
+  aarch64: "python:3.12-alpine"
+  armv7: "python:3.12-alpine"
+labels:
+  org.opencontainers.image.source: "https://github.com/leanderdl2/tuya-lock-bridge"
+  org.opencontainers.image.licenses: "MIT"
