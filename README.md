@@ -29,7 +29,7 @@ this.
 - An HTTP API for automations — create a code per booking, revoke it afterwards
 
 Codes can be plain, single-use, or carry a recurring daily pattern such as
-"every weekday between 11:00 and 15:00".
+"every weekday between 11:00 and 15:00" — see the caveat about patterns below.
 
 ## Installation
 
@@ -49,9 +49,16 @@ are not documented anywhere else are in [DOCS.md](tuya_lock_bridge/DOCS.md).
 ## Which locks
 
 Developed against a Nivian NV-ACCESS-PIN-RFID-W WiFi keypad (Tuya category
-`mk`), where the whole flow is confirmed working on physical hardware. It should
-work with any Tuya lock that exposes the Smart Lock Open Service temporary
-password APIs. Reports about other models are welcome.
+`mk`). Unlocking and code management are confirmed working on that physical
+hardware. It should work with any Tuya lock that exposes the Smart Lock Open
+Service temporary password APIs. Reports about other models are welcome.
+
+**Recurring daily patterns are the exception.** Tuya's documentation states they
+are supported only by Zigbee residential lock pro and hotel lock. The cloud does
+accept and store a pattern for other locks, but whether your lock enforces the
+hours is untested — if it does not, a code meant for "every day 11:00 to 15:00"
+simply works around the clock within its outer window. Create one and try it
+outside its hours once before relying on it.
 
 ## Licence
 
