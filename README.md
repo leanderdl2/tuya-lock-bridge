@@ -8,8 +8,17 @@ them, and clear out the expired ones.
 
 Home Assistant's own Tuya integration does not cover this. Its documentation
 states that every platform is supported *except* `lock` and `remote`, so a Tuya
-keypad shows up there as a read-only state with no way to control it. This
-add-on fills that gap.
+keypad shows up there as a read-only binary sensor with no way to control it.
+This add-on fills that gap.
+
+If all you need is opening and closing, have a look at
+[Xtend Tuya](https://github.com/azerty9971/xtend_tuya) first — a community
+integration that does add real `lock` entities for some devices. It does not
+manage access codes: its source contains no reference to Tuya's temporary
+password APIs at all. And on the keypad this add-on was built against, a Nivian
+NV-ACCESS-PIN-RFID-W, its lock entities did not actually open the door. Your
+mileage may differ, and if Xtend Tuya covers your case then you do not need
+this.
 
 ## What you get
 

@@ -19,7 +19,15 @@ own and offers Home Assistant a plain HTTP API instead.
 
 Home Assistant's own Tuya integration will not fill this gap. Its documentation
 states that every platform is supported *except* `lock` and `remote`, so an
-access panel shows up there as a read-only state with no way to control it.
+access panel shows up there as a read-only binary sensor with no way to control
+it.
+
+The community [Xtend Tuya](https://github.com/azerty9971/xtend_tuya)
+integration does add real `lock` entities for some devices, so if opening and
+closing is all you are after, try that one first. It does not do access codes —
+its source contains no reference to Tuya's temporary password APIs. On the
+keypad this add-on was developed against, a Nivian NV-ACCESS-PIN-RFID-W, its
+lock entities did not open the door in practice either.
 
 ## Before you start
 
