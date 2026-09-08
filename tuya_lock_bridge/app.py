@@ -1010,6 +1010,13 @@ def health():
 
 MQTT_BASIS = "tuya_lock_bridge"
 STATUS_TOPIC = f"{MQTT_BASIS}/status"
+INSTANTIE_TOPIC = f"{MQTT_BASIS}/instance"
+
+# Kenmerk van deze draaiende kopie. Twee kopieen tegen dezelfde broker is
+# een reeel scenario - bijvoorbeeld een oude handmatige installatie naast
+# een uit de store - en dan voert elke opdracht zich dubbel uit: een boeking
+# levert twee codes op. Dat gebeurt geruisloos, dus melden we het.
+INSTANTIE = os.urandom(4).hex()
 
 _mqtt_client = None
 
@@ -1184,8 +1191,133 @@ def _open_via_mqtt(naam):
         log.exception("MQTT: failed to open %s", naam)
 
 
+def _voer_opdracht_uit(naam, opdracht):
+    """Handelt een bericht op het commandotopic af en meldt de uitkomst terug.
+
+    Hiermee kan een automatisering alles wat de HTTP-API kan, zonder dat er
+    ergens een poort open hoeft: publiceren op MQTT is genoeg.
+    """
+    actie = (opdracht.get("action") or "").strip().lower()
+    antwoord = {"action": actie, "lock": naam, "success": False}
+    if "request_id" in opdracht:
+        # Ongewijzigd terugsturen, zodat een automatisering haar eigen antwoord
+        # kan herkennen als er meerdere opdrachten tegelijk lopen.
+        antwoord["request_id"] = opdracht["request_id"]
+
+    try:
+        device_id = resolve_device(naam)
+        if actie == "unlock":
+            resp = ontgrendel(device_id)
+        elif actie == "book":
+            last4 = str(opdracht["last4"]).zfill(4)
+            effective_time = int(opdracht["effective_time"])
+            jaar_prefix = datetime.fromtimestamp(effective_time).strftime("%y")
+            resp = maak_code(
+                device_id,
+                jaar_prefix + last4,
+                (opdracht.get("name") or "").strip() or f"Booking-{last4}",
+                effective_time,
+                int(opdracht["invalid_time"]),
+            )
+        elif actie == "code":
+            wachtwoord = str(opdracht["password"]).strip()
+            if not wachtwoord.isdigit():
+                raise ValueError("the PIN may only contain digits")
+            resp = maak_code(
+                device_id,
+                wachtwoord,
+                (opdracht.get("name") or "").strip() or f"Code-{wachtwoord[-4:]}",
+                int(opdracht["effective_time"]),
+                int(opdracht["invalid_time"]),
+                schedule=opdracht.get("schedule"),
+                one_time=bool(opdracht.get("one_time")),
+            )
+        elif actie in ("revoke", "purge"):
+            staart = "/record" if actie == "purge" else ""
+            with TUYA_LOCK:
+                resp = get_api().delete(
+                    f"/v1.0/devices/{device_id}/door-lock/temp-passwords/"
+                    f"{opdracht['id']}{staart}"
+                )
+        elif actie == "refresh":
+            resp = {"success": True}
+        else:
+            raise ValueError(
+                f"unknown action '{actie}' - use unlock, book, code, revoke, "
+                f"purge or refresh"
+            )
+
+        antwoord["success"] = bool(resp.get("success"))
+        if not antwoord["success"]:
+            antwoord["error"] = resp.get("msg") or str(resp)
+        elif isinstance(resp.get("result"), dict) and "id" in resp["result"]:
+            antwoord["id"] = resp["result"]["id"]
+    except KeyError as e:
+        # Een kale KeyError levert alleen de veldnaam op, wat als foutmelding
+        # nietszeggend is. Er een zin van maken.
+        log.warning("MQTT: command '%s' for %s misses field %s", actie, naam, e)
+        antwoord["error"] = f"the command is missing the field {e}"
+    except Exception as e:
+        log.exception("MQTT: command '%s' for %s failed", actie, naam)
+        antwoord["error"] = str(e)
+
+    if _mqtt_client is not None:
+        _mqtt_client.publish(
+            f"{MQTT_BASIS}/{naam}/result", json.dumps(antwoord), retain=False
+        )
+    # Elke opdracht raakt de codelijst, dus de sensor meteen bijwerken.
+    if actie != "unlock":
+        _veilig_publiceer(naam)
+
+
+_dubbel_gemeld = False
+
+
 def _op_bericht(client, userdata, bericht):
+    global _dubbel_gemeld
+
+    if bericht.topic == INSTANTIE_TOPIC:
+        vreemd = bericht.payload.decode("utf-8", "replace")
+        if vreemd and vreemd != INSTANTIE and not _dubbel_gemeld:
+            _dubbel_gemeld = True
+            log.error(
+                "Another copy of this add-on (%s) is using the same MQTT topics. "
+                "Every command will be carried out twice - one booking will "
+                "produce two codes. Stop one of the two.",
+                vreemd,
+            )
+            # Eenmalig terugkaatsen, zodat de andere kopie het ook opmerkt en
+            # niet hoeft te wachten op zijn eerstvolgende verversingsronde. Het
+            # blijft bij een enkel bericht: de vlag hierboven staat nu aan, dus
+            # het antwoord daarop leidt niet tot nog een bericht.
+            #
+            # Met opzet een paar seconden later. Een kopie die net verbinding
+            # maakt kondigt zichzelf aan in dezelfde ademtocht als waarin hij
+            # zich abonneert, en blijkt een antwoord dat meteen terugkomt nog
+            # te missen - gemeten met een meeluisteraar op de broker: het
+            # bericht stond er wel, de andere kopie kreeg het niet. Na een paar
+            # seconden staat zijn abonnement er wel.
+            threading.Timer(
+                3.0, lambda: client.publish(INSTANTIE_TOPIC, INSTANTIE, retain=False)
+            ).start()
+        return
+
     delen = bericht.topic.split("/")
+
+    if len(delen) == 3 and delen[0] == MQTT_BASIS and delen[2] == "command":
+        naam = delen[1]
+        try:
+            opdracht = json.loads(bericht.payload.decode("utf-8") or "{}")
+            if not isinstance(opdracht, dict):
+                raise ValueError("the payload must be a JSON object")
+        except Exception as e:
+            log.warning("MQTT: unreadable command for %s: %s", naam, e)
+            return
+        threading.Thread(
+            target=_voer_opdracht_uit, args=(naam, opdracht), daemon=True
+        ).start()
+        return
+
     if len(delen) == 4 and delen[0] == MQTT_BASIS and delen[2:] == ["open", "set"]:
         naam = delen[1]
         if naam not in DEVICES:
@@ -1205,11 +1337,19 @@ def _op_verbinding(client, userdata, verbindingsvlaggen, reden, eigenschappen=No
     client.publish(STATUS_TOPIC, "online", retain=True)
     publiceer_discovery(client)
     client.subscribe(f"{MQTT_BASIS}/+/open/set")
+    client.subscribe(f"{MQTT_BASIS}/+/command")
+    client.subscribe(INSTANTIE_TOPIC)
+    # Bewust niet retained: een achtergebleven kenmerk van een vorige start zou
+    # anders een valse waarschuwing geven.
+    client.publish(INSTANTIE_TOPIC, INSTANTIE, retain=False)
     log.info("MQTT: connected and subscribed to commands")
 
 
 def _ververs_lus(client, interval):
     while True:
+        # Elke ronde het eigen kenmerk opnieuw omroepen, zodat een kopie die
+        # later start ook door de al draaiende kopie wordt opgemerkt.
+        client.publish(INSTANTIE_TOPIC, INSTANTIE, retain=False)
         for naam in sorted(DEVICES):
             try:
                 publiceer_codes(client, naam)
@@ -1228,7 +1368,7 @@ def start_mqtt():
         mqtt.CallbackAPIVersion.VERSION2,
         # Unieke id: draaien er per ongeluk twee kopieen tegen dezelfde broker,
         # dan schoppen ze elkaar met een gedeelde id eindeloos van de lijn.
-        client_id=f"{MQTT_BASIS}_{os.urandom(4).hex()}",
+        client_id=f"{MQTT_BASIS}_{INSTANTIE}",
     )
     if instellingen["username"]:
         client.username_pw_set(instellingen["username"], instellingen["password"])

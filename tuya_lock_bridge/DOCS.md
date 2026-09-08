@@ -191,11 +191,78 @@ and 15:00 until the window runs out. Weekdays run from 1 (Monday) through 7
 (Sunday). Both fields are optional: without `schedule` the code is valid for the
 whole period, and with `one_time` set to `true` it expires after a single use.
 
-## Driving it from automations
+## Driving it from automations over MQTT
 
-The panel and the entities cover most of what you need. For anything beyond
-that — creating a code per booking, revoking it at checkout — call the HTTP API
-from a `rest_command`.
+This is the route that needs no network settings at all: publish a command on
+MQTT and the bridge carries it out. Nothing has to be exposed, no token has to
+travel your network, and it uses the same connection the entities already run
+over.
+
+Publish a JSON object to `tuya_lock_bridge/<lock>/command`:
+
+| `action` | Extra fields | Does |
+|---|---|---|
+| `unlock` | — | Opens the door |
+| `book` | `last4`, `effective_time`, `invalid_time`, optional `name` | Creates a code whose PIN is the two-digit year of `effective_time` plus `last4` |
+| `code` | `password`, `effective_time`, `invalid_time`, optional `name`, `one_time`, `schedule` | Creates a code with a PIN of your own |
+| `revoke` | `id` | Revokes a code |
+| `purge` | `id` | Removes an expired record from the list |
+| `refresh` | — | Republishes the sensor without changing anything |
+
+The result comes back on `tuya_lock_bridge/<lock>/result`:
+
+```json
+{"action": "book", "lock": "front_door", "success": true,
+ "request_id": "booking-4321", "id": 872476914}
+```
+
+Add a `request_id` of your own to any command and it is echoed back unchanged,
+so an automation can recognise its own answer when several commands are in
+flight. On failure you get `"success": false` and an `error` describing what
+went wrong — an unknown action, a missing field, a PIN with letters in it, or
+whatever Tuya said.
+
+A booking automation then looks like this:
+
+```yaml
+actions:
+  - action: mqtt.publish
+    data:
+      topic: "tuya_lock_bridge/front_door/command"
+      payload: >-
+        {"action": "book", "request_id": "{{ booking_id }}",
+         "last4": "{{ last4 }}", "name": "Booking-{{ last4 }}",
+         "effective_time": {{ checkin }}, "invalid_time": {{ checkout }}}
+```
+
+To wait for the outcome, trigger a second automation on the result topic:
+
+```yaml
+triggers:
+  - trigger: mqtt
+    topic: "tuya_lock_bridge/+/result"
+conditions:
+  - "{{ not trigger.payload_json.success }}"
+actions:
+  - action: persistent_notification.create
+    data:
+      title: "Lock command failed"
+      message: "{{ trigger.payload_json.action }}: {{ trigger.payload_json.error }}"
+```
+
+The code sensor updates itself after every command, so there is no need to ask
+for a refresh afterwards.
+
+**Do not run two copies against the same broker.** An old manual installation
+left running beside one from a repository shares every topic, and then each
+command is carried out twice — one booking quietly produces two codes. The
+bridge watches for this and writes a loud error in its log when it spots
+another copy, but it cannot stop it. Stop one of the two.
+
+## Driving it from automations over HTTP
+
+If you would rather use `rest_command` than MQTT, the same operations are
+available over HTTP.
 
 **Use the internal hostname, not a published port.** Home Assistant Core sits on
 the same internal network as the add-on and can reach it by name, so there is no
