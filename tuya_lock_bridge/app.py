@@ -20,6 +20,7 @@ Encryptie-aanpak (fysiek bevestigd werkend op een Nivian NV-ACCESS-PIN-RFID-W):
 Zie DOCS.md voor de rest van de gevonden eigenaardigheden.
 """
 
+import base64
 import ipaddress
 import json
 import logging
@@ -102,6 +103,16 @@ TEKST = {
         "device": "Lock {name}",
         "button": "Open",
         "sensor": "Valid codes",
+        "unlocks": "Last unlock",
+        "unlock_event": "Unlock",
+        "methods": {
+            "unlock_password_kit": "PIN",
+            "unlock_card_kit": "card",
+            "unlock_phone_remote_kit": "app",
+            "unlock_temporary_kit": "temporary code",
+            "unlock_fingerprint_kit": "fingerprint",
+            "unlock_key_kit": "key",
+        },
         "revoked": "revoked",
         "expired": "expired",
         "scheduled": "scheduled",
@@ -163,6 +174,16 @@ TEKST = {
         "device": "Slot {name}",
         "button": "Openen",
         "sensor": "Geldige codes",
+        "unlocks": "Laatste ontgrendeling",
+        "unlock_event": "Ontgrendeling",
+        "methods": {
+            "unlock_password_kit": "pincode",
+            "unlock_card_kit": "pasje",
+            "unlock_phone_remote_kit": "app",
+            "unlock_temporary_kit": "tijdelijke code",
+            "unlock_fingerprint_kit": "vingerafdruk",
+            "unlock_key_kit": "sleutel",
+        },
         "revoked": "ingetrokken",
         "expired": "verlopen",
         "scheduled": "gepland",
@@ -438,6 +459,64 @@ def haal_codes(device_id):
     if not resp.get("success"):
         raise RuntimeError(f"could not fetch the code list: {resp}")
     return resp.get("result") or []
+
+
+def haal_ontgrendelingen(device_id, dagen=7, aantal=20):
+    """De recentste ontgrendelingen van een slot, nieuwste eerst.
+
+    Tuya wil begin- en eindtijd in milliseconden. Elke regel draagt de naam van
+    de gebruikte sleutel zoals die op het apparaat is ingesteld (unlock_name),
+    de methode (status.code, bijvoorbeeld unlock_password_kit) en het
+    sleutelnummer (status.value).
+    """
+    eind = int(time.time() * 1000)
+    begin = eind - dagen * 86400 * 1000
+    with TUYA_LOCK:
+        resp = get_api().get(
+            f"/v1.1/devices/{device_id}/door-lock/open-logs",
+            {"page_no": 1, "page_size": aantal, "start_time": begin, "end_time": eind},
+        )
+    if not resp.get("success"):
+        raise RuntimeError(f"could not fetch the unlock log: {resp}")
+    return (resp.get("result") or {}).get("logs") or []
+
+
+def tijdelijk_slotnummer(waarde):
+    """Bij een tijdelijke code staat in status.value geen nummer maar een
+    base64-blok van zes bytes waarvan de eerste vier het slotnummer (sn) zijn:
+    AAAAAQAA is sn 1, AAAABQAA is sn 5. Gemeten op een Nivian keypad."""
+    try:
+        b = base64.b64decode(str(waarde))
+        return int.from_bytes(b[:4], "big") if len(b) >= 4 else None
+    except Exception:
+        return None
+
+
+def ontgrendeling_samenvatting(log, codes_op_sn=None):
+    """Een logregel van Tuya omgezet naar wat we in Home Assistant tonen.
+
+    Bij een tijdelijke code laat Tuya de naam leeg; die zoeken we op via het
+    slotnummer in de codelijst, zodat 'Booking-4321' in het log verschijnt in
+    plaats van een leeg veld. Is de code inmiddels gewist, dan blijft het bij
+    de methode.
+    """
+    status = log.get("status") or {}
+    code = status.get("code") or ""
+    wie = (log.get("unlock_name") or "").strip() or (log.get("nick_name") or "").strip()
+    if code == "unlock_temporary_kit" and codes_op_sn:
+        sn = tijdelijk_slotnummer(status.get("value"))
+        if sn in codes_op_sn:
+            wie = codes_op_sn[sn]
+    return {
+        "who": wie or T["methods"].get(code, code) or "?",
+        "method": T["methods"].get(code, code),
+        "method_code": code,
+        "key": status.get("value"),
+        "time": datetime.fromtimestamp(
+            int(log.get("update_time", 0)) / 1000
+        ).isoformat(timespec="seconds"),
+        "timestamp": int(log.get("update_time", 0)) // 1000,
+    }
 
 
 def code_status(code, nu):
@@ -1115,12 +1194,45 @@ def publiceer_discovery(client):
             ),
             retain=True,
         )
+        client.publish(
+            f"homeassistant/sensor/{MQTT_BASIS}/{naam}_last_unlock/config",
+            json.dumps(
+                {
+                    "name": T["unlocks"],
+                    "unique_id": f"{MQTT_BASIS}_{naam}_last_unlock",
+                    "state_topic": f"{MQTT_BASIS}/{naam}/unlocks/state",
+                    "json_attributes_topic": f"{MQTT_BASIS}/{naam}/unlocks/attributes",
+                    "icon": "mdi:door-open",
+                    "device": _apparaat(naam),
+                    **_BESCHIKBAARHEID,
+                }
+            ),
+            retain=True,
+        )
+        # Een event-entiteit: elke ontgrendeling is een gebeurtenis met wie,
+        # hoe en wanneer, waar een automatisering direct op kan triggeren.
+        client.publish(
+            f"homeassistant/event/{MQTT_BASIS}/{naam}_unlock/config",
+            json.dumps(
+                {
+                    "name": T["unlock_event"],
+                    "unique_id": f"{MQTT_BASIS}_{naam}_unlock",
+                    "state_topic": f"{MQTT_BASIS}/{naam}/unlock/event",
+                    "event_types": ["unlock"],
+                    "icon": "mdi:key-variant",
+                    "device": _apparaat(naam),
+                    **_BESCHIKBAARHEID,
+                }
+            ),
+            retain=True,
+        )
     log.info("MQTT: entities announced for %s", ", ".join(sorted(DEVICES)))
 
 
-def publiceer_codes(client, naam):
+def publiceer_codes(client, naam, codes=None):
     """Zet de codes van een slot als toestand plus attributen op de broker."""
-    codes = haal_codes(resolve_device(naam))
+    if codes is None:
+        codes = haal_codes(resolve_device(naam))
     nu = int(time.time())
 
     regels, tellingen = [], {}
@@ -1159,6 +1271,52 @@ def publiceer_codes(client, naam):
         ),
         retain=True,
     )
+
+
+# Per slot de tijd van de nieuwste ontgrendeling die we al gezien hebben. Bij
+# de eerste ronde na het opstarten wordt dit gezet zonder events te sturen:
+# anders zou een herstart de hele geschiedenis opnieuw als gebeurtenissen
+# afvuren.
+_laatst_gezien = {}
+
+
+def publiceer_ontgrendelingen(client, naam, codes=None):
+    logs = haal_ontgrendelingen(resolve_device(naam))
+    codes_op_sn = {c.get("sn"): c.get("name") for c in (codes or []) if c.get("sn")}
+    regels = [ontgrendeling_samenvatting(l, codes_op_sn) for l in logs]
+    regels.sort(key=lambda r: r["timestamp"], reverse=True)
+
+    if regels:
+        laatste = regels[0]
+        client.publish(f"{MQTT_BASIS}/{naam}/unlocks/state", laatste["who"], retain=True)
+        client.publish(
+            f"{MQTT_BASIS}/{naam}/unlocks/attributes",
+            json.dumps(
+                {
+                    "method": laatste["method"],
+                    "key": laatste["key"],
+                    "time": laatste["time"],
+                    "recent": [
+                        {k: r[k] for k in ("who", "method", "key", "time")}
+                        for r in regels
+                    ],
+                    "updated": datetime.now().isoformat(timespec="seconds"),
+                }
+            ),
+            retain=True,
+        )
+
+    nieuwste = regels[0]["timestamp"] if regels else 0
+    if naam not in _laatst_gezien:
+        _laatst_gezien[naam] = nieuwste
+        return
+    for r in reversed([r for r in regels if r["timestamp"] > _laatst_gezien[naam]]):
+        client.publish(
+            f"{MQTT_BASIS}/{naam}/unlock/event",
+            json.dumps({"event_type": "unlock", **{k: r[k] for k in ("who", "method", "key", "time")}}),
+            retain=False,
+        )
+    _laatst_gezien[naam] = max(_laatst_gezien[naam], nieuwste)
 
 
 def _veilig_publiceer(naam):
@@ -1351,10 +1509,16 @@ def _ververs_lus(client, interval):
         # later start ook door de al draaiende kopie wordt opgemerkt.
         client.publish(INSTANTIE_TOPIC, INSTANTIE, retain=False)
         for naam in sorted(DEVICES):
+            codes = None
             try:
-                publiceer_codes(client, naam)
+                codes = haal_codes(resolve_device(naam))
+                publiceer_codes(client, naam, codes)
             except Exception:
                 log.exception("MQTT: could not publish the codes of %s", naam)
+            try:
+                publiceer_ontgrendelingen(client, naam, codes)
+            except Exception:
+                log.exception("MQTT: could not publish the unlock log of %s", naam)
         time.sleep(interval)
 
 

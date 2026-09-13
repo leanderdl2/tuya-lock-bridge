@@ -114,6 +114,28 @@ The status words in the sensor's attributes are translated as well; the numeric
 attributes that go with them (`scheduled`, `expired`, `waiting_for_lock`) keep
 English names so automations can rely on them.
 
+### Who opened the door
+
+Two more entities per lock cover the unlock history:
+
+| Entity | Does |
+|---|---|
+| `sensor.lock_<name>_last_unlock` | Who opened the door last. Attributes: the method (PIN, card, app, temporary code, fingerprint, key), the key slot, the time, and `recent` with the last twenty unlocks |
+| `event.lock_<name>_unlock` | Fires once per unlock with the same details, so an automation can trigger on it — notify when the cleaner arrives, log who came in at night |
+
+The names are the ones you gave the keys and codes on the lock itself. For a
+temporary code Tuya leaves that name empty in the log and only reports a slot
+number; the bridge looks the slot up in the code list so the log reads
+`Booking-4321` rather than a blank. Once such a code has been purged, the entry
+falls back to "temporary code".
+
+The log is polled along with the code list, so an unlock shows up within
+`refresh_minutes`. That is fine for history and for "did the cleaner come
+today"; it is not a doorbell. On startup the bridge reads the log without firing
+events, so a restart does not replay the whole history into your logbook.
+
+Every refresh costs one extra call per lock against your Tuya allowance.
+
 Both belong to the same device, so they end up together on the card of whatever
 area you assign the lock to. There is nothing to set up: because the add-on
 declares `mqtt:need`, Supervisor hands over the broker details. Using a broker
