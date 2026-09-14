@@ -24,10 +24,14 @@ this.
 
 ## What you get
 
-- A **Locks** panel in the sidebar to manage codes by hand
+- A **Locks** panel in the sidebar to manage codes and profiles by hand
+- **Profiles** with a permanent PIN — add one, see who has which cards and
+  codes, delete it again
 - A **button** entity per lock to open the door
 - A **sensor** entity per lock with the number of currently valid codes, and the
   full list in its attributes
+- **Who opened the door**: a sensor with the last unlock and an event per
+  unlock, by name and method
 - An HTTP API for automations — create a code per booking, revoke it afterwards
 
 Codes can be plain, single-use, or carry a recurring daily pattern such as

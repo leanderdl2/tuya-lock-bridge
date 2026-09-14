@@ -168,6 +168,27 @@ TEKST = {
             "createFailed": "Could not create: {err}",
             "noLocks": "No locks configured yet. Add them in the add-on configuration.",
             "fetchLocksFailed": "Could not fetch the locks: {err}",
+            "profilesHeading": "Profiles",
+            "colProfile": "Profile",
+            "colMethods": "Unlock methods",
+            "appAccount": "app account",
+            "types": {"password": "PIN", "card": "card", "fingerprint": "fingerprint", "face": "face"},
+            "removeMethod": "Remove",
+            "deleteProfile": "Delete profile",
+            "confirmDeleteProfile": 'Delete profile "{name}" and its unlock methods? Cards can only be re-added at the device.',
+            "confirmRemoveMethod": 'Remove {type} "{name}" from {who}?',
+            "profileDeleted": "Profile deleted.",
+            "methodRemoved": "Unlock method removed.",
+            "newProfileHeading": "New profile",
+            "profileName": "Name",
+            "profileNamePlaceholder": "Cleaner",
+            "profilePin": "PIN",
+            "addProfile": "Add profile",
+            "profileCreated": "Profile created. The PIN works once the lock has picked it up.",
+            "needProfileName": "Enter a name for the profile.",
+            "noProfiles": "No profiles on this lock.",
+            "loadProfilesFailed": "Could not load the profiles: {err}",
+            "cardsNote": "A profile gets a permanent PIN. Cards and fingerprints can only be enrolled at the device itself; they show up here once you have.",
         },
     },
     "nl": {
@@ -239,6 +260,27 @@ TEKST = {
             "createFailed": "Aanmaken mislukt: {err}",
             "noLocks": "Nog geen sloten geconfigureerd. Vul ze in bij de add-on-configuratie.",
             "fetchLocksFailed": "Kon de sloten niet ophalen: {err}",
+            "profilesHeading": "Profielen",
+            "colProfile": "Profiel",
+            "colMethods": "Ontgrendelmethodes",
+            "appAccount": "app-account",
+            "types": {"password": "pincode", "card": "pasje", "fingerprint": "vingerafdruk", "face": "gezicht"},
+            "removeMethod": "Verwijder",
+            "deleteProfile": "Profiel verwijderen",
+            "confirmDeleteProfile": 'Profiel "{name}" met al zijn ontgrendelmethodes verwijderen? Pasjes kun je alleen bij het apparaat opnieuw toevoegen.',
+            "confirmRemoveMethod": '{type} "{name}" van {who} verwijderen?',
+            "profileDeleted": "Profiel verwijderd.",
+            "methodRemoved": "Ontgrendelmethode verwijderd.",
+            "newProfileHeading": "Nieuw profiel",
+            "profileName": "Naam",
+            "profileNamePlaceholder": "Schoonmaker",
+            "profilePin": "Pincode",
+            "addProfile": "Profiel toevoegen",
+            "profileCreated": "Profiel aangemaakt. De pincode werkt zodra het slot hem heeft opgepikt.",
+            "needProfileName": "Vul een naam in voor het profiel.",
+            "noProfiles": "Geen profielen op dit slot.",
+            "loadProfilesFailed": "Kon de profielen niet ophalen: {err}",
+            "cardsNote": "Een profiel krijgt een vaste pincode. Pasjes en vingerafdrukken kun je alleen bij het apparaat zelf toevoegen; daarna verschijnen ze hier.",
         },
     },
 }
@@ -519,6 +561,162 @@ def ontgrendeling_samenvatting(log, codes_op_sn=None):
     }
 
 
+# ---------------------------------------------------------------------------
+# Profielen: leden van het slot en hun vaste ontgrendelmethodes
+# ---------------------------------------------------------------------------
+#
+# Naast tijdelijke codes kent een Tuya-slot LEDEN met daaraan vaste methodes:
+# een pincode, een pasje, een vingerafdruk. Twee soorten leden komen voor:
+#   - home-gebruikers: app-accounts die het slot delen (user_type 50 in de
+#     gebruikerslijst; in de opmode-paden telt dat als user_type 1)
+#   - apparaatleden: profielen die op het slot zelf zijn aangemaakt, zonder
+#     app-account (user_type 10/20; in de opmode-paden user_type 2)
+# Een vaste pincode is op afstand in te schrijven met dezelfde ticket-
+# versleuteling als een tijdelijke code. Een pasje of vingerafdruk niet: die
+# moet fysiek bij het apparaat worden aangeboden. Gemeten op een Nivian keypad:
+# lid aanmaken, pincode inschrijven, hernoemen en verwijderen werken allemaal.
+
+DP_NAAR_TYPE = {
+    "unlock_password": "password",
+    "unlock_card": "card",
+    "unlock_fingerprint": "fingerprint",
+    "unlock_face": "face",
+}
+
+
+def is_home_gebruiker(user_type):
+    """user_type uit /v1.1/devices/{id}/users: 50 is het app-account dat het
+    slot deelt, lagere waarden zijn profielen op het apparaat zelf."""
+    try:
+        return int(user_type) >= 50
+    except (TypeError, ValueError):
+        return False
+
+
+def haal_leden(device_id):
+    """Alle gebruikers van het slot, met per gebruiker de vaste methodes."""
+    with TUYA_LOCK:
+        api = get_api()
+        r = api.get(f"/v1.1/devices/{device_id}/users", {"page_no": 1, "page_size": 100})
+        if not r.get("success"):
+            raise RuntimeError(f"could not fetch the members: {r}")
+        res = r.get("result") or {}
+        gebruikers = (res.get("records") if isinstance(res, dict) else res) or []
+        leden = []
+        for u in gebruikers:
+            uid = u.get("user_id")
+            m = api.get(
+                f"/v1.0/smart-lock/devices/{device_id}/opmodes/{uid}",
+                {"page_no": 1, "page_size": 50},
+            )
+            mres = m.get("result") or {}
+            methodes = (mres.get("records") if isinstance(mres, dict) else mres) or []
+            leden.append(
+                {
+                    "user_id": uid,
+                    "name": (u.get("nick_name") or "").strip(),
+                    "home_user": is_home_gebruiker(u.get("user_type")),
+                    "methods": [
+                        {
+                            "sn": x.get("unlock_sn"),
+                            "type": DP_NAAR_TYPE.get(x.get("dp_code"), x.get("dp_code")),
+                            "name": (x.get("unlock_name") or "").strip(),
+                            "phase": x.get("phase"),
+                        }
+                        for x in methodes
+                    ],
+                }
+            )
+    return leden
+
+
+def maak_lid_met_code(device_id, naam, pincode):
+    """Maakt een apparaatlid aan en schrijft er een vaste pincode voor in.
+
+    De methode krijgt van Tuya een automatische naam (zoals '11-8'); die
+    zetten we meteen om naar de naam van het lid, zodat het ontgrendellog
+    leesbaar is. Mislukt het inschrijven, dan wordt het lid weer verwijderd
+    zodat er geen lege profielen achterblijven.
+    """
+    with TUYA_LOCK:
+        api = get_api()
+        r = api.post(f"/v1.0/devices/{device_id}/user", {"nick_name": naam, "sex": 0})
+        if not r.get("success"):
+            raise RuntimeError(f"could not create the member: {r}")
+        res = r["result"]
+        uid = res if isinstance(res, str) else (res.get("user_id") or res.get("id"))
+
+        ticket = get_ticket(api, device_id)
+        ticket_key = decrypt_ticket_key(ticket["ticket_key"], CFG["access_secret"])
+        r = api.put(
+            f"/v1.0/devices/{device_id}/door-lock/actions/entry",
+            {
+                "unlock_type": "password",
+                "user_type": 2,
+                "user_id": uid,
+                "password_type": "ticket",
+                "ticket_id": ticket["ticket_id"],
+                "password": encrypt_password(pincode, ticket_key),
+            },
+        )
+        if not r.get("success"):
+            api.delete(f"/v1.0/devices/{device_id}/users/{uid}")
+            raise RuntimeError(f"could not enrol the PIN: {r}")
+
+        # Het slotnummer opzoeken en de methode naar het lid vernoemen.
+        sn = None
+        for _ in range(5):
+            m = api.get(
+                f"/v1.0/smart-lock/devices/{device_id}/opmodes/{uid}",
+                {"page_no": 1, "page_size": 20},
+            )
+            mres = m.get("result") or {}
+            for x in (mres.get("records") if isinstance(mres, dict) else mres) or []:
+                if x.get("dp_code") == "unlock_password":
+                    sn = x.get("unlock_sn")
+            if sn is not None:
+                break
+            time.sleep(1)
+        if sn is not None:
+            api.put(
+                f"/v1.0/devices/{device_id}/door-lock/opmodes/{sn}",
+                {"dp_code": "unlock_password", "unlock_name": naam},
+            )
+    return {"user_id": uid, "sn": sn}
+
+
+def verwijder_methode(device_id, uid, home_user, unlock_type, sn):
+    pad_type = 1 if home_user else 2
+    with TUYA_LOCK:
+        r = get_api().delete(
+            f"/v1.0/devices/{device_id}/door-lock/user-types/{pad_type}/users/{uid}"
+            f"/unlock-types/{unlock_type}/keys/{sn}"
+        )
+    if not r.get("success"):
+        raise RuntimeError(f"could not delete the unlock method: {r}")
+    return r
+
+
+def verwijder_lid(device_id, uid):
+    """Haalt eerst alle methodes van het lid weg en daarna het lid zelf.
+
+    Home-gebruikers worden geweigerd: dat zijn app-accounts, geen profielen
+    van dit slot, en die verwijder je in de Tuya-app - niet hier.
+    """
+    lid = next((l for l in haal_leden(device_id) if l["user_id"] == uid), None)
+    if lid is None:
+        raise ValueError(f"unknown member '{uid}'")
+    if lid["home_user"]:
+        raise ValueError("this is an app account that shares the lock, not a profile - remove it in the Tuya app")
+    for m in lid["methods"]:
+        verwijder_methode(device_id, uid, False, m["type"], m["sn"])
+    with TUYA_LOCK:
+        r = get_api().delete(f"/v1.0/devices/{device_id}/users/{uid}")
+    if not r.get("success"):
+        raise RuntimeError(f"could not delete the member: {r}")
+    return {"removed_methods": len(lid["methods"])}
+
+
 def code_status(code, nu):
     """Zelfde indeling als het paneel toont.
 
@@ -705,6 +903,44 @@ def delete_code_record(room, password_id):
     return jsonify(resp)
 
 
+@app.route("/members/<room>", methods=["GET"])
+def list_members(room):
+    return jsonify({"success": True, "members": haal_leden(resolve_device(room))})
+
+
+@app.route("/members/<room>", methods=["POST"])
+def create_member(room):
+    """Maakt een profiel aan: een lid met een vaste pincode."""
+    data = request.get_json(force=True)
+    device_id = resolve_device(room)
+    naam = (data.get("name") or "").strip()
+    pincode = str(data.get("password") or "").strip()
+    if not naam:
+        raise ValueError("a name is required")
+    if not pincode.isdigit():
+        raise ValueError("the PIN may only contain digits")
+    uit = maak_lid_met_code(device_id, naam, pincode)
+    return jsonify({"success": True, **uit})
+
+
+@app.route("/members/<room>/<user_id>", methods=["DELETE"])
+def delete_member(room, user_id):
+    uit = verwijder_lid(resolve_device(room), user_id)
+    return jsonify({"success": True, **uit})
+
+
+@app.route("/members/<room>/<user_id>/methods/<unlock_type>/<sn>", methods=["DELETE"])
+def delete_member_method(room, user_id, unlock_type, sn):
+    device_id = resolve_device(room)
+    lid = next((l for l in haal_leden(device_id) if l["user_id"] == user_id), None)
+    if lid is None:
+        raise ValueError(f"unknown member '{user_id}'")
+    if lid["home_user"]:
+        raise ValueError("this belongs to an app account that shares the lock - manage it in the Tuya app")
+    verwijder_methode(device_id, user_id, False, unlock_type, sn)
+    return jsonify({"success": True})
+
+
 PANEL_HTML = """<!doctype html>
 <html>
 <head>
@@ -743,6 +979,10 @@ PANEL_HTML = """<!doctype html>
                  cursor:pointer; user-select:none; }
   .dagen input { width:auto; }
   td small { color:var(--muted); display:block; }
+  .note { margin:0 0 10px; font-size:12px; color:var(--muted); }
+  .methode { display:flex; align-items:center; gap:8px; padding:2px 0; }
+  .methode .tag { font-size:11px; }
+  button.klein { padding:2px 8px; font-size:12px; }
   #msg { padding:10px 12px; border-radius:6px; margin-bottom:14px; display:none; }
   #msg.err { background:#fdecec; color:#8a1c1c; display:block; }
   #msg.good { background:#e8f5ec; color:#0a5c26; display:block; }
@@ -806,6 +1046,28 @@ PANEL_HTML = """<!doctype html>
     <div><label for="dagtot" data-i18n="dayUntil">Every day until</label><input id="dagtot" type="time" value="15:00"></div>
   </div>
   <button id="add" data-i18n="create">Create code</button>
+</div>
+
+<h2 data-i18n="profilesHeading">Profiles</h2>
+<div class="card">
+  <p class="note" data-i18n="cardsNote">A profile gets a permanent PIN. Cards and fingerprints can only be enrolled at the device itself; they show up here once you have.</p>
+  <table>
+    <thead><tr>
+      <th data-i18n="colProfile">Profile</th>
+      <th data-i18n="colMethods">Unlock methods</th>
+      <th></th>
+    </tr></thead>
+    <tbody id="profielen"></tbody>
+  </table>
+</div>
+
+<h2 data-i18n="newProfileHeading">New profile</h2>
+<div class="card">
+  <div class="row">
+    <div><label for="pnaam" data-i18n="profileName">Name</label><input id="pnaam" data-i18n-ph="profileNamePlaceholder"></div>
+    <div><label for="ppin" data-i18n="profilePin">PIN</label><input id="ppin" inputmode="numeric" placeholder="123456"></div>
+  </div>
+  <button id="padd" data-i18n="addProfile">Add profile</button>
 </div>
 
 <script>
@@ -1011,13 +1273,123 @@ $('add').onclick = async () => {
   $('add').disabled = false;
 };
 
+async function laadProfielen() {
+  const slot = $('lock').value;
+  if (!slot) return;
+  $('profielen').innerHTML = '<tr><td colspan="3">' + T.loading + '</td></tr>';
+  try {
+    const j = await api('members/' + slot);
+    const leden = j.members || [];
+    if (!leden.length) {
+      $('profielen').innerHTML = '<tr><td colspan="3">' + T.noProfiles + '</td></tr>';
+      return;
+    }
+    $('profielen').innerHTML = '';
+    for (const lid of leden) {
+      const tr = document.createElement('tr');
+      const naam = document.createElement('td');
+      naam.textContent = lid.name || lid.user_id;
+      if (lid.home_user) {
+        const s = document.createElement('small');
+        s.textContent = T.appAccount;
+        naam.appendChild(s);
+      }
+      const methodes = document.createElement('td');
+      for (const m of lid.methods) {
+        const rij = document.createElement('div');
+        rij.className = 'methode';
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = T.types[m.type] || m.type;
+        const txt = document.createElement('span');
+        txt.textContent = m.name || ('#' + m.sn);
+        rij.append(tag, txt);
+        // Methodes van een app-account beheer je in de Tuya-app; het
+        // verwijderen daarvan via de API is op dit apparaat niet te testen
+        // gebleken (inschrijven op zo'n account geeft 'param is illegal').
+        if (!lid.home_user) {
+          const weg = document.createElement('button');
+          weg.className = 'sec klein';
+          weg.textContent = T.removeMethod;
+          weg.onclick = () => verwijderMethode(slot, lid, m, weg);
+          rij.appendChild(weg);
+        }
+        methodes.appendChild(rij);
+      }
+      const actie = document.createElement('td');
+      actie.style.textAlign = 'right';
+      if (!lid.home_user) {
+        const knop = document.createElement('button');
+        knop.className = 'sec';
+        knop.textContent = T.deleteProfile;
+        knop.onclick = () => verwijderProfiel(slot, lid, knop);
+        actie.appendChild(knop);
+      }
+      tr.append(naam, methodes, actie);
+      $('profielen').appendChild(tr);
+    }
+  } catch (e) {
+    melding(vul(T.loadProfilesFailed, { err: e.message }), 'err');
+    $('profielen').innerHTML = '';
+  }
+}
+
+async function verwijderMethode(slot, lid, m, knop) {
+  const vraag = vul(T.confirmRemoveMethod, { type: T.types[m.type] || m.type, name: m.name || ('#' + m.sn), who: lid.name });
+  if (!confirm(vraag)) return;
+  knop.disabled = true;
+  try {
+    await api('members/' + slot + '/' + lid.user_id + '/methods/' + m.type + '/' + m.sn, { method: 'DELETE' });
+    melding(T.methodRemoved, 'good');
+    laadProfielen();
+  } catch (e) {
+    melding(vul(T.failed, { err: e.message }), 'err');
+    knop.disabled = false;
+  }
+}
+
+async function verwijderProfiel(slot, lid, knop) {
+  if (!confirm(vul(T.confirmDeleteProfile, { name: lid.name }))) return;
+  knop.disabled = true;
+  try {
+    await api('members/' + slot + '/' + lid.user_id, { method: 'DELETE' });
+    melding(T.profileDeleted, 'good');
+    laadProfielen();
+  } catch (e) {
+    melding(vul(T.failed, { err: e.message }), 'err');
+    knop.disabled = false;
+  }
+}
+
+$('padd').onclick = async () => {
+  const slot = $('lock').value;
+  const naam = $('pnaam').value.trim();
+  const pin = $('ppin').value.trim();
+  if (!naam) return melding(T.needProfileName, 'err');
+  if (!/^[0-9]+$/.test(pin)) return melding(T.pinDigits, 'err');
+  $('padd').disabled = true;
+  try {
+    await api('members/' + slot, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: naam, password: pin })
+    });
+    melding(T.profileCreated, 'good');
+    $('pnaam').value = ''; $('ppin').value = '';
+    laadProfielen();
+  } catch (e) {
+    melding(vul(T.createFailed, { err: e.message }), 'err');
+  }
+  $('padd').disabled = false;
+};
+
 (async () => {
   laadrij();
   try {
     const j = await api('rooms');
     if (!j.rooms.length) return melding(T.noLocks, 'err');
     $('lock').innerHTML = j.rooms.map(r => '<option>' + r + '</option>').join('');
-    $('lock').onchange = laadCodes;
+    $('lock').onchange = () => { laadCodes(); laadProfielen(); };
     // standaard: vanaf nu tot morgen middag
     const p = n => String(n).padStart(2, '0');
     const iso = d => d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
@@ -1027,6 +1399,7 @@ $('add').onclick = async () => {
     $('van').value = iso(nu);
     $('tot').value = iso(morgen);
     laadCodes();
+    laadProfielen();
   } catch (e) {
     melding(vul(T.fetchLocksFailed, { err: e.message }), 'err');
   }
@@ -1397,12 +1770,23 @@ def _voer_opdracht_uit(naam, opdracht):
                     f"/v1.0/devices/{device_id}/door-lock/temp-passwords/"
                     f"{opdracht['id']}{staart}"
                 )
+        elif actie == "member_add":
+            naam = (opdracht.get("name") or "").strip()
+            pincode = str(opdracht.get("password") or "").strip()
+            if not naam:
+                raise ValueError("a name is required")
+            if not pincode.isdigit():
+                raise ValueError("the PIN may only contain digits")
+            uit = maak_lid_met_code(device_id, naam, pincode)
+            resp = {"success": True, "result": uit}
+        elif actie == "member_delete":
+            resp = {"success": True, "result": verwijder_lid(device_id, opdracht["user_id"])}
         elif actie == "refresh":
             resp = {"success": True}
         else:
             raise ValueError(
                 f"unknown action '{actie}' - use unlock, book, code, revoke, "
-                f"purge or refresh"
+                f"purge, member_add, member_delete or refresh"
             )
 
         antwoord["success"] = bool(resp.get("success"))
@@ -1410,6 +1794,8 @@ def _voer_opdracht_uit(naam, opdracht):
             antwoord["error"] = resp.get("msg") or str(resp)
         elif isinstance(resp.get("result"), dict) and "id" in resp["result"]:
             antwoord["id"] = resp["result"]["id"]
+        elif isinstance(resp.get("result"), dict) and "user_id" in resp["result"]:
+            antwoord["user_id"] = resp["result"]["user_id"]
     except KeyError as e:
         # Een kale KeyError levert alleen de veldnaam op, wat als foutmelding
         # nietszeggend is. Er een zin van maken.

@@ -165,6 +165,46 @@ recognised by the presence of the ingress header *and* a source address inside
 Supervisor's own network, so nobody can imitate it by sending that header from
 elsewhere.
 
+## Profiles: permanent codes
+
+Besides temporary codes, a Tuya lock has **members** with permanent unlock
+methods attached — a PIN, a card, a fingerprint. The panel lists them under
+*Profiles*, and lets you add a profile with a permanent PIN and delete it again.
+
+Two kinds of members show up:
+
+- **App accounts** that share the lock, marked *app account*. Their methods
+  are listed for the overview but managed in the Tuya app; the bridge does not
+  touch them. On the keypad this was developed against, enrolling a PIN on such
+  an account through the API is refused with `param is illegal`, so deleting
+  from it is untested and deliberately not offered.
+- **Profiles** created on the lock itself, without an app account — what you
+  add here. A profile gets a permanent PIN; the bridge names the unlock method
+  after the profile so the unlock log reads the name, not Tuya's automatic
+  `11-8`.
+
+Cards and fingerprints cannot be enrolled remotely — Tuya's API has no way to
+carry a card's identity, it has to be presented at the device. Once you have
+enrolled one in the Tuya app, it appears here and can be removed here.
+
+Deleting a profile removes its unlock methods first and then the member.
+
+Over HTTP:
+
+| Method | Path | Does |
+|---|---|---|
+| GET | `/members/<lock>` | Every member with its unlock methods |
+| POST | `/members/<lock>` | `{"name": "Cleaner", "password": "445566"}` — creates a profile with a permanent PIN |
+| DELETE | `/members/<lock>/<user_id>` | Removes a profile and all its methods |
+| DELETE | `/members/<lock>/<user_id>/methods/<type>/<sn>` | Removes one method (`password`, `card`, `fingerprint`, `face`) |
+
+Over MQTT, on `tuya_lock_bridge/<lock>/command`: `{"action": "member_add",
+"name": "Cleaner", "password": "445566"}` answers with the new `user_id`;
+`{"action": "member_delete", "user_id": "..."}` removes it.
+
+Listing members costs one call plus one per member, so the panel fetches it
+on demand rather than the refresh loop polling it.
+
 ## Endpoints
 
 Port 8099 is **not** published on your network by default, and it does not need
@@ -237,6 +277,8 @@ Publish a JSON object to `tuya_lock_bridge/<lock>/command`:
 | `code` | `password`, `effective_time`, `invalid_time`, optional `name`, `one_time`, `schedule` | Creates a code with a PIN of your own |
 | `revoke` | `id` | Revokes a code |
 | `purge` | `id` | Removes an expired record from the list |
+| `member_add` | `name`, `password` | Creates a profile with a permanent PIN; answers with `user_id` |
+| `member_delete` | `user_id` | Removes a profile and its unlock methods |
 | `refresh` | — | Republishes the sensor without changing anything |
 
 The result comes back on `tuya_lock_bridge/<lock>/result`:
