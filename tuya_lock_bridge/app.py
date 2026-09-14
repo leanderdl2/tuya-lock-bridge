@@ -166,7 +166,7 @@ TEKST = {
             "needWindow": "Fill in the daily time window.",
             "createdOk": "Code created. It takes a minute or two before the lock knows it.",
             "createFailed": "Could not create: {err}",
-            "noLocks": "No locks configured yet. Add them in the add-on configuration.",
+            "noLocks": "No locks configured yet. Add them in the app configuration.",
             "fetchLocksFailed": "Could not fetch the locks: {err}",
             "profilesHeading": "Profiles",
             "colProfile": "Profile",
@@ -272,7 +272,7 @@ TEKST = {
             "needWindow": "Vul het dagelijkse tijdvenster in.",
             "createdOk": "Code aangemaakt. Het duurt 1 tot 2 minuten voor het slot hem kent.",
             "createFailed": "Aanmaken mislukt: {err}",
-            "noLocks": "Nog geen sloten geconfigureerd. Vul ze in bij de add-on-configuratie.",
+            "noLocks": "Nog geen sloten geconfigureerd. Vul ze in bij de app-configuratie.",
             "fetchLocksFailed": "Kon de sloten niet ophalen: {err}",
             "profilesHeading": "Profielen",
             "colProfile": "Profiel",
@@ -345,7 +345,7 @@ DEVICES = _load_locks(CFG)
 if not DEVICES:
     log.error(
         "No locks configured. Add at least one lock with a name and its Tuya "
-        "device ID in the add-on configuration."
+        "device ID in the app configuration."
     )
 if not CFG.get("api_token"):
     log.error(
@@ -1741,7 +1741,7 @@ def mqtt_instellingen():
     if not token:
         raise RuntimeError(
             "no SUPERVISOR_TOKEN found and no mqtt_host set - fill in the broker "
-            "details by hand in the add-on configuration"
+            "details by hand in the app configuration"
         )
     r = requests.get(
         "http://supervisor/services/mqtt",
@@ -2089,7 +2089,7 @@ def _op_bericht(client, userdata, bericht):
         if vreemd and vreemd != INSTANTIE and not _dubbel_gemeld:
             _dubbel_gemeld = True
             log.error(
-                "Another copy of this add-on (%s) is using the same MQTT topics. "
+                "Another copy of this app (%s) is using the same MQTT topics. "
                 "Every command will be carried out twice - one booking will "
                 "produce two codes. Stop one of the two.",
                 vreemd,

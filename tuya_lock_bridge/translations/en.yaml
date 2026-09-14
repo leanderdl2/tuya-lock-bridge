@@ -15,7 +15,7 @@ configuration:
     name: API token
     description: >-
       A password of your own choosing that Home Assistant presents when it
-      calls this add-on over the network. Pick a long random string. Not needed
+      calls this app over the network. Pick a long random string. Not needed
       for the panel or the entities.
   time_zone:
     name: Time zone

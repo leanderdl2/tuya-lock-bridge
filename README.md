@@ -4,34 +4,34 @@
 > [**leanderdl2/hass-tuya-lock-bridge**](https://github.com/leanderdl2/hass-tuya-lock-bridge),
 > installable through HACS.
 >
-> The integration does everything this add-on does — panel, entities, codes,
+> The integration does everything this app (formerly called an add-on) does — panel, entities, codes,
 > profiles, who opened the door — as native Home Assistant entities and
 > services, and it runs on every install type, not only Home Assistant OS. New
-> features land there. This add-on keeps working as it is and stays available
+> features land there. This app keeps working as it is and stays available
 > for anyone already using it, but it will only receive fixes.
 >
 > Moving over: install the integration, set it up with the same Tuya
-> credentials, then stop the add-on. Entity names differ (`slot_room1_*` here,
+> credentials, then stop the app. Entity names differ (`slot_room1_*` here,
 > `keypad_room_1_*` from the integration, named after the device in Tuya), and
 > `rest_command` or MQTT calls become service calls such as
 > `tuya_lock_bridge.book` — which answer with the id of what they created.
 
 [![Add repository to your Home Assistant instance](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fleanderdl2%2Ftuya-lock-bridge)
 
-A Home Assistant add-on that lets you drive Tuya smart locks: unlock a door
+A Home Assistant app that lets you drive Tuya smart locks: unlock a door
 remotely and manage temporary access codes — create them, list them, revoke
 them, and clear out the expired ones.
 
 Home Assistant's own Tuya integration does not cover this. Its documentation
 states that every platform is supported *except* `lock` and `remote`, so a Tuya
 keypad shows up there as a read-only binary sensor with no way to control it.
-This add-on fills that gap.
+This app fills that gap.
 
 If all you need is opening and closing, have a look at
 [Xtend Tuya](https://github.com/azerty9971/xtend_tuya) first — a community
 integration that does add real `lock` entities for some devices. It does not
 manage access codes: its source contains no reference to Tuya's temporary
-password APIs at all. And on the keypad this add-on was built against, a Nivian
+password APIs at all. And on the keypad this app was built against, a Nivian
 NV-ACCESS-PIN-RFID-W, its lock entities did not actually open the door. Your
 mileage may differ, and if Xtend Tuya covers your case then you do not need
 this.
@@ -57,7 +57,7 @@ Codes can be plain, single-use, or carry a recurring daily pattern such as
 
 1. Click the badge above, or add
    `https://github.com/leanderdl2/tuya-lock-bridge` as a repository in the
-   Home Assistant add-on store.
+   Home Assistant app store.
 2. Install **Tuya Lock Bridge**.
 3. Fill in your Tuya Access ID, Access Secret and your locks.
 4. Start it.

@@ -15,7 +15,7 @@ configuration:
     name: API-token
     description: >-
       Een zelfgekozen wachtwoord waarmee Home Assistant zich meldt als het deze
-      add-on over het netwerk aanroept. Kies iets langs en willekeurigs. Voor
+      app over het netwerk aanroept. Kies iets langs en willekeurigs. Voor
       het paneel en de entiteiten is het niet nodig.
   time_zone:
     name: Tijdzone

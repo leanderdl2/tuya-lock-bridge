@@ -4,14 +4,14 @@
 > [**leanderdl2/hass-tuya-lock-bridge**](https://github.com/leanderdl2/hass-tuya-lock-bridge),
 > installable through HACS.
 >
-> The integration does everything this add-on does — panel, entities, codes,
+> The integration does everything this app (formerly called an add-on) does — panel, entities, codes,
 > profiles, who opened the door — as native Home Assistant entities and
 > services, and it runs on every install type, not only Home Assistant OS. New
-> features land there. This add-on keeps working as it is and stays available
+> features land there. This app keeps working as it is and stays available
 > for anyone already using it, but it will only receive fixes.
 >
 > Moving over: install the integration, set it up with the same Tuya
-> credentials, then stop the add-on. Entity names differ (`slot_room1_*` here,
+> credentials, then stop the app. Entity names differ (`slot_room1_*` here,
 > `keypad_room_1_*` from the integration, named after the device in Tuya), and
 > `rest_command` or MQTT calls become service calls such as
 > `tuya_lock_bridge.book` — which answer with the id of what they created.
@@ -21,7 +21,7 @@
 A local HTTP bridge that lets Home Assistant drive Tuya smart locks: unlock
 remotely, and create, list and delete temporary access codes.
 
-## Why this add-on exists
+## Why this app exists
 
 Tuya locks deliberately offer **no local API**. Where a Tuya bulb or plug is
 happy to be driven over your own network, a lock refuses every local
@@ -30,7 +30,7 @@ AES encryption.
 
 The Python libraries needed for that (`tuya-connector-python` and
 `pycryptodome`) cannot be installed permanently inside the Home Assistant Core
-container — an update wipes them. This add-on runs them in a container of its
+container — an update wipes them. This app runs them in a container of its
 own and offers Home Assistant a plain HTTP API instead.
 
 Home Assistant's own Tuya integration will not fill this gap. Its documentation
@@ -42,7 +42,7 @@ The community [Xtend Tuya](https://github.com/azerty9971/xtend_tuya)
 integration does add real `lock` entities for some devices, so if opening and
 closing is all you are after, try that one first. It does not do access codes —
 its source contains no reference to Tuya's temporary password APIs. On the
-keypad this add-on was developed against, a Nivian NV-ACCESS-PIN-RFID-W, its
+keypad this app was developed against, a Nivian NV-ACCESS-PIN-RFID-W, its
 lock entities did not open the door in practice either.
 
 ## Before you start
@@ -62,7 +62,7 @@ Mind the **data centre**: an account created in Europe belongs to
 
 Keep an eye on your project's subscription too. The Trial Edition comes with a
 monthly allowance and has to be extended periodically; when it lapses, every
-API call stops working and so does this add-on.
+API call stops working and so does this app.
 
 ## Configuration
 
@@ -71,7 +71,7 @@ API call stops working and so does this add-on.
 | `access_id` | Access ID of your Tuya Cloud project |
 | `access_secret` | Access Secret of the same project |
 | `endpoint` | The data centre your account belongs to |
-| `api_token` | A password of your own choosing that Home Assistant presents to this add-on. Pick a long random string. With no token set, the bridge refuses every request. |
+| `api_token` | A password of your own choosing that Home Assistant presents to this app. Pick a long random string. With no token set, the bridge refuses every request. |
 | `time_zone` | The zone a recurring daily pattern is calculated in. Leave empty to use the time zone of Home Assistant itself. |
 | `mqtt_enabled` | Whether the bridge registers entities in Home Assistant |
 | `mqtt_host` … `mqtt_password` | Leave empty to use the Home Assistant broker; Supervisor then supplies the details. Only fill these in for a broker elsewhere. |
@@ -97,7 +97,7 @@ recognised.
 
 ## Language
 
-The add-on asks Home Assistant what language it is set to and follows it. There
+The app asks Home Assistant what language it is set to and follows it. There
 is nothing to configure. Dutch and English are supported; anything else falls
 back to English.
 
@@ -119,7 +119,7 @@ but leaves the entity IDs as they were.
 
 ## Entities in Home Assistant
 
-The add-on registers itself over MQTT and creates two entities per lock.
+The app registers itself over MQTT and creates two entities per lock.
 
 | Entity | Does |
 |---|---|
@@ -153,11 +153,11 @@ events, so a restart does not replay the whole history into your logbook.
 Every refresh costs one extra call per lock against your Tuya allowance.
 
 Both belong to the same device, so they end up together on the card of whatever
-area you assign the lock to. There is nothing to set up: because the add-on
+area you assign the lock to. There is nothing to set up: because the app
 declares `mqtt:need`, Supervisor hands over the broker details. Using a broker
 outside Home Assistant? Fill in `mqtt_host` and the fields beside it.
 
-The entities carry an availability channel. If the add-on goes down or loses its
+The entities carry an availability channel. If the app goes down or loses its
 network, the broker publishes the last will and they turn grey in Home
 Assistant — so you can see the bridge is gone, instead of pressing a button that
 quietly does nothing.
@@ -171,7 +171,7 @@ Two locks at five minutes adds up to some seventeen thousand calls a month.
 
 ## The panel
 
-The add-on adds a **Locks** entry to the Home Assistant sidebar where you can
+The app adds a **Locks** entry to the Home Assistant sidebar where you can
 manage codes by hand: see what is on a lock, revoke a code, purge an expired
 record, open a door, and create a code with a PIN and a window of your own.
 
@@ -384,9 +384,9 @@ If you would rather use `rest_command` than MQTT, the same operations are
 available over HTTP.
 
 **Use the internal hostname, not a published port.** Home Assistant Core sits on
-the same internal network as the add-on and can reach it by name, so there is no
+the same internal network as the app and can reach it by name, so there is no
 reason to expose port 8099 on your LAN at all. The name contains an
-unpredictable part for add-ons installed from a repository, so the add-on writes
+unpredictable part for apps installed from a repository, so the app writes
 it to its own log on every start:
 
 ```
@@ -419,7 +419,7 @@ rest_command:
 Read the result with `response_variable`; the content is parsed JSON already, so
 `.content.success` and `.content.result` work without `from_json`.
 
-**Keep the timeout generous.** The first request after the add-on starts still
+**Keep the timeout generous.** The first request after the app starts still
 has to fetch a token from Tuya and takes noticeably longer; with a tight timeout
 it is precisely that first call that fails every time. Forty-five seconds is a
 sensible floor.
@@ -430,7 +430,7 @@ freshly created code within minutes — see the quirks below — so read
 is really on the lock.
 
 If you do need the API from outside Home Assistant, map port 8099 under the
-add-on's *Network* section and set an `api_token` first. Requests arriving over
+app's *Network* section and set an `api_token` first. Requests arriving over
 the network always need the `X-Api-Token` header; the panel does not, because
 ingress authenticates the user before the request ever reaches the bridge.
 
@@ -488,7 +488,7 @@ pattern once outside its window before relying on it.
 ## Troubleshooting
 
 **`unauthorized`** — the `X-Api-Token` header is missing or does not match the
-add-on configuration. The log line records the source address and whether the
+app configuration. The log line records the source address and whether the
 ingress header was present, which usually points straight at the cause.
 
 **`unknown lock`** — the name in the URL is not in `locks`. Check `/rooms`.
@@ -500,5 +500,5 @@ accept. Many keypads are fixed at six digits.
 the Smart Lock Open Service, or the trial subscription has expired.
 
 **The panel returns 401** — the bridge only treats a request as ingress when it
-arrives from Supervisor's network. Check the add-on log: the refusal line names
+arrives from Supervisor's network. Check the app log: the refusal line names
 the source address it actually saw.
