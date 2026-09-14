@@ -1,5 +1,21 @@
 # Tuya Lock Bridge
 
+> **Development has moved to the Home Assistant integration:**
+> [**leanderdl2/hass-tuya-lock-bridge**](https://github.com/leanderdl2/hass-tuya-lock-bridge),
+> installable through HACS.
+>
+> The integration does everything this add-on does — panel, entities, codes,
+> profiles, who opened the door — as native Home Assistant entities and
+> services, and it runs on every install type, not only Home Assistant OS. New
+> features land there. This add-on keeps working as it is and stays available
+> for anyone already using it, but it will only receive fixes.
+>
+> Moving over: install the integration, set it up with the same Tuya
+> credentials, then stop the add-on. Entity names differ (`slot_room1_*` here,
+> `keypad_room_1_*` from the integration, named after the device in Tuya), and
+> `rest_command` or MQTT calls become service calls such as
+> `tuya_lock_bridge.book` — which answer with the id of what they created.
+
 [![Add repository to your Home Assistant instance](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fleanderdl2%2Ftuya-lock-bridge)
 
 A local HTTP bridge that lets Home Assistant drive Tuya smart locks: unlock
