@@ -195,6 +195,25 @@ or wait a minute for the enrolment window to close by itself.
 
 Deleting a profile removes its unlock methods first and then the member.
 
+### Switching a profile off and on
+
+A profile can be disabled and enabled again without losing anything: its codes
+and cards stay, they just stop opening the door. Under the hood this is the
+member's validity window — a window in the past means off, permanent means on.
+The lock acknowledges the change (`delivery_status: SUCCESS` in the user's
+details), and the overview shows a disabled profile greyed out.
+
+It works per profile, not per code: everything a profile holds goes off
+together. That is usually what you want — "the cleaner is on holiday". For an
+individual temporary code there is no equivalent: Tuya's freeze exists for
+Zigbee locks only and answers `not support the lock type` here, so a temporary
+code can only be revoked and created again, which needs the PIN once more.
+
+Over HTTP: `PUT /members/<lock>/<user_id>/active` with `{"active": false}` or
+`{"active": true}`. Over MQTT: `member_disable` and `member_enable` with the
+`user_id` — handy for an automation that enables the cleaner's profile only on
+changeover days.
+
 Over HTTP:
 
 | Method | Path | Does |
@@ -203,6 +222,7 @@ Over HTTP:
 | POST | `/members/<lock>` | `{"name": "Cleaner", "password": "445566"}` — creates a profile with a permanent PIN |
 | DELETE | `/members/<lock>/<user_id>` | Removes a profile and all its methods |
 | POST | `/members/<lock>/<user_id>/methods` | `{"type": "password", "password": "445566", "name": "Evening"}` adds a PIN; `{"type": "card"}` starts card enrolment at the device |
+| PUT | `/members/<lock>/<user_id>/active` | `{"active": false}` switches a profile off, `true` on again |
 | PUT | `/members/<lock>/<user_id>/methods/<type>/<sn>` | `{"name": "..."}` renames a method |
 | DELETE | `/members/<lock>/<user_id>/methods/<type>/<sn>` | Removes one method (`password`, `card`, `fingerprint`, `face`) |
 
@@ -287,6 +307,7 @@ Publish a JSON object to `tuya_lock_bridge/<lock>/command`:
 | `purge` | `id` | Removes an expired record from the list |
 | `member_add` | `name`, `password` | Creates a profile with a permanent PIN; answers with `user_id` |
 | `member_delete` | `user_id` | Removes a profile and its unlock methods |
+| `member_enable` / `member_disable` | `user_id` | Switches a profile on or off; its codes and cards stay |
 | `method_add` | `user_id`, `type`, `password` (for a PIN), optional `name` | Adds a PIN to a profile, or starts card enrolment |
 | `method_rename` | `user_id`, `type`, `sn`, `name` | Renames a method |
 | `refresh` | — | Republishes the sensor without changing anything |

@@ -198,6 +198,11 @@ TEKST = {
             "rename": "rename",
             "promptRename": "New name for {name}:",
             "methodRenamed": "Renamed.",
+            "disabled": "disabled",
+            "disable": "Disable",
+            "enable": "Enable",
+            "profileDisabled": "Profile disabled - its codes and cards no longer open the door.",
+            "profileEnabled": "Profile enabled.",
         },
     },
     "nl": {
@@ -299,6 +304,11 @@ TEKST = {
             "rename": "hernoem",
             "promptRename": "Nieuwe naam voor {name}:",
             "methodRenamed": "Hernoemd.",
+            "disabled": "uitgeschakeld",
+            "disable": "Uitschakelen",
+            "enable": "Inschakelen",
+            "profileDisabled": "Profiel uitgeschakeld - de codes en pasjes ervan openen de deur niet meer.",
+            "profileEnabled": "Profiel ingeschakeld.",
         },
     },
 }
@@ -629,11 +639,19 @@ def haal_leden(device_id):
             )
             mres = m.get("result") or {}
             methodes = (mres.get("records") if isinstance(mres, dict) else mres) or []
+            home = is_home_gebruiker(u.get("user_type"))
+            # Aan of uit: het geldigheidsvenster van het lid. Alleen voor
+            # apparaatleden opgevraagd; een app-account laten we met rust.
+            actief = True
+            if not home:
+                d = api.get(f"/v1.1/devices/{device_id}/users/{uid}").get("result") or {}
+                actief = d.get("effective_flag", 1) == 1
             leden.append(
                 {
                     "user_id": uid,
                     "name": (u.get("nick_name") or "").strip(),
-                    "home_user": is_home_gebruiker(u.get("user_type")),
+                    "home_user": home,
+                    "active": actief,
                     "methods": [
                         {
                             "sn": x.get("unlock_sn"),
@@ -765,6 +783,28 @@ def verwijder_methode(device_id, uid, home_user, unlock_type, sn):
             f"/unlock-types/{unlock_type}/keys/{sn}"
         )
     return _controleer(r, "delete the unlock method")
+
+
+def zet_lid_actief(device_id, uid, actief):
+    """Schakelt een profiel uit of weer in via zijn geldigheidsvenster.
+
+    Uit = een venster dat al voorbij is; aan = permanent. Het slot bevestigt de
+    wijziging met delivery_status SUCCESS in de gebruikersgegevens - gemeten
+    op een Nivian keypad. Het werkt per profiel: alle codes en pasjes van dat
+    profiel gaan tegelijk uit. Tuya's freeze voor losse tijdelijke codes
+    bestaat alleen voor Zigbee-sloten (foutcode 2004 op dit apparaat).
+    """
+    if actief:
+        schedule = {"permanent": True}
+    else:
+        nu = int(time.time())
+        schedule = {"permanent": False, "effective_time": nu - 7200, "expired_time": nu - 3600}
+    with TUYA_LOCK:
+        r = get_api().put(
+            f"/v1.0/smart-lock/devices/{device_id}/users/{uid}/schedule",
+            {"schedule": schedule},
+        )
+    return _controleer(r, "enable the profile" if actief else "disable the profile")
 
 
 def verwijder_lid(device_id, uid):
@@ -1008,6 +1048,16 @@ def _apparaatlid(device_id, user_id):
     return lid
 
 
+@app.route("/members/<room>/<user_id>/active", methods=["PUT"])
+def set_member_active(room, user_id):
+    """{"active": true|false} - profiel in- of uitschakelen."""
+    data = request.get_json(force=True)
+    device_id = resolve_device(room)
+    _apparaatlid(device_id, user_id)
+    zet_lid_actief(device_id, user_id, bool(data.get("active")))
+    return jsonify({"success": True, "active": bool(data.get("active"))})
+
+
 @app.route("/members/<room>/<user_id>/methods", methods=["POST"])
 def add_member_method(room, user_id):
     """Voegt een pincode toe, of zet het slot in inschrijfmodus voor een pasje."""
@@ -1083,6 +1133,7 @@ PANEL_HTML = """<!doctype html>
   .dagen input { width:auto; }
   td small { color:var(--muted); display:block; }
   .note { margin:0 0 10px; font-size:12px; color:var(--muted); }
+  tr.uit td:first-child, tr.uit .methode span { color:var(--muted); }
   .methode { display:flex; align-items:center; gap:8px; padding:2px 0; }
   .methode .tag { font-size:11px; }
   button.klein { padding:2px 8px; font-size:12px; }
@@ -1390,11 +1441,12 @@ async function laadProfielen() {
     $('profielen').innerHTML = '';
     for (const lid of leden) {
       const tr = document.createElement('tr');
+      if (lid.active === false) tr.className = 'uit';
       const naam = document.createElement('td');
       naam.textContent = lid.name || lid.user_id;
-      if (lid.home_user) {
+      if (lid.home_user || lid.active === false) {
         const s = document.createElement('small');
-        s.textContent = T.appAccount;
+        s.textContent = lid.home_user ? T.appAccount : T.disabled;
         naam.appendChild(s);
       }
       const methodes = document.createElement('td');
@@ -1440,11 +1492,16 @@ async function laadProfielen() {
       const actie = document.createElement('td');
       actie.style.textAlign = 'right';
       if (!lid.home_user) {
+        const aanuit = document.createElement('button');
+        aanuit.className = 'sec';
+        aanuit.style.marginRight = '6px';
+        aanuit.textContent = lid.active === false ? T.enable : T.disable;
+        aanuit.onclick = () => zetActief(slot, lid, lid.active === false, aanuit);
         const knop = document.createElement('button');
         knop.className = 'sec';
         knop.textContent = T.deleteProfile;
         knop.onclick = () => verwijderProfiel(slot, lid, knop);
-        actie.appendChild(knop);
+        actie.append(aanuit, knop);
       }
       tr.append(naam, methodes, actie);
       $('profielen').appendChild(tr);
@@ -1516,6 +1573,22 @@ async function hernoemMethode(slot, lid, m, knop) {
       body: JSON.stringify({ name: naam.trim() })
     });
     melding(T.methodRenamed, 'good');
+    laadProfielen();
+  } catch (e) {
+    melding(vul(T.failed, { err: e.message }), 'err');
+    knop.disabled = false;
+  }
+}
+
+async function zetActief(slot, lid, actief, knop) {
+  knop.disabled = true;
+  try {
+    await api('members/' + slot + '/' + lid.user_id + '/active', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: actief })
+    });
+    melding(actief ? T.profileEnabled : T.profileDisabled, 'good');
     laadProfielen();
   } catch (e) {
     melding(vul(T.failed, { err: e.message }), 'err');
@@ -1956,6 +2029,9 @@ def _voer_opdracht_uit(naam, opdracht):
             resp = {"success": True, "result": uit}
         elif actie == "member_delete":
             resp = {"success": True, "result": verwijder_lid(device_id, opdracht["user_id"])}
+        elif actie in ("member_enable", "member_disable"):
+            zet_lid_actief(device_id, opdracht["user_id"], actie == "member_enable")
+            resp = {"success": True}
         elif actie == "method_add":
             uit = schrijf_methode_in(
                 device_id,
@@ -1973,7 +2049,8 @@ def _voer_opdracht_uit(naam, opdracht):
         else:
             raise ValueError(
                 f"unknown action '{actie}' - use unlock, book, code, revoke, "
-                f"purge, member_add, member_delete, method_add, method_rename or refresh"
+                f"purge, member_add, member_delete, member_enable, member_disable, "
+                f"method_add, method_rename or refresh"
             )
 
         antwoord["success"] = bool(resp.get("success"))
