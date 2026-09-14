@@ -183,9 +183,15 @@ Two kinds of members show up:
   after the profile so the unlock log reads the name, not Tuya's automatic
   `11-8`.
 
-Cards and fingerprints cannot be enrolled remotely — Tuya's API has no way to
-carry a card's identity, it has to be presented at the device. Once you have
-enrolled one in the Tuya app, it appears here and can be removed here.
+A profile can hold several methods. *+ PIN* adds another permanent code, with
+a name of its own so the unlock log can tell them apart. *+ card* puts the lock
+into enrolment mode: hold the card against the keypad within about a minute and
+it appears under the profile, ready to be renamed. The card's identity cannot
+travel through the API, which is why this step happens at the device.
+
+While the lock is waiting for a card, it refuses every other change with
+Tuya's error 2328, *operation in progress*. The panel says so; hold the card,
+or wait a minute for the enrolment window to close by itself.
 
 Deleting a profile removes its unlock methods first and then the member.
 
@@ -196,6 +202,8 @@ Over HTTP:
 | GET | `/members/<lock>` | Every member with its unlock methods |
 | POST | `/members/<lock>` | `{"name": "Cleaner", "password": "445566"}` — creates a profile with a permanent PIN |
 | DELETE | `/members/<lock>/<user_id>` | Removes a profile and all its methods |
+| POST | `/members/<lock>/<user_id>/methods` | `{"type": "password", "password": "445566", "name": "Evening"}` adds a PIN; `{"type": "card"}` starts card enrolment at the device |
+| PUT | `/members/<lock>/<user_id>/methods/<type>/<sn>` | `{"name": "..."}` renames a method |
 | DELETE | `/members/<lock>/<user_id>/methods/<type>/<sn>` | Removes one method (`password`, `card`, `fingerprint`, `face`) |
 
 Over MQTT, on `tuya_lock_bridge/<lock>/command`: `{"action": "member_add",
@@ -279,6 +287,8 @@ Publish a JSON object to `tuya_lock_bridge/<lock>/command`:
 | `purge` | `id` | Removes an expired record from the list |
 | `member_add` | `name`, `password` | Creates a profile with a permanent PIN; answers with `user_id` |
 | `member_delete` | `user_id` | Removes a profile and its unlock methods |
+| `method_add` | `user_id`, `type`, `password` (for a PIN), optional `name` | Adds a PIN to a profile, or starts card enrolment |
+| `method_rename` | `user_id`, `type`, `sn`, `name` | Renames a method |
 | `refresh` | — | Republishes the sensor without changing anything |
 
 The result comes back on `tuya_lock_bridge/<lock>/result`:

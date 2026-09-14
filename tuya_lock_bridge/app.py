@@ -188,7 +188,16 @@ TEKST = {
             "needProfileName": "Enter a name for the profile.",
             "noProfiles": "No profiles on this lock.",
             "loadProfilesFailed": "Could not load the profiles: {err}",
-            "cardsNote": "A profile gets a permanent PIN. Cards and fingerprints can only be enrolled at the device itself; they show up here once you have.",
+            "cardsNote": "A profile holds permanent PINs and cards. A PIN is added here; for a card the lock is put in enrolment mode and you hold the card against the keypad.",
+            "addPin": "+ PIN",
+            "addCard": "+ card",
+            "promptPin": "PIN for {name}:",
+            "promptMethodName": "Name for this method (leave empty for \"{name}\"):",
+            "pinAdded": "PIN added. It works once the lock has picked it up.",
+            "cardEnrolStarted": "The lock is waiting for a card: hold it against the keypad now. Refresh afterwards and it appears under {name}.",
+            "rename": "rename",
+            "promptRename": "New name for {name}:",
+            "methodRenamed": "Renamed.",
         },
     },
     "nl": {
@@ -280,7 +289,16 @@ TEKST = {
             "needProfileName": "Vul een naam in voor het profiel.",
             "noProfiles": "Geen profielen op dit slot.",
             "loadProfilesFailed": "Kon de profielen niet ophalen: {err}",
-            "cardsNote": "Een profiel krijgt een vaste pincode. Pasjes en vingerafdrukken kun je alleen bij het apparaat zelf toevoegen; daarna verschijnen ze hier.",
+            "cardsNote": "Een profiel heeft vaste pincodes en pasjes. Een pincode voeg je hier toe; voor een pasje wordt het slot in inschrijfmodus gezet en houd je het pasje tegen het paneel.",
+            "addPin": "+ pincode",
+            "addCard": "+ pasje",
+            "promptPin": "Pincode voor {name}:",
+            "promptMethodName": "Naam voor deze methode (leeg = \"{name}\"):",
+            "pinAdded": "Pincode toegevoegd. Hij werkt zodra het slot hem heeft opgepikt.",
+            "cardEnrolStarted": "Het slot wacht op een pasje: houd het nu tegen het paneel. Ververs daarna, dan staat het onder {name}.",
+            "rename": "hernoem",
+            "promptRename": "Nieuwe naam voor {name}:",
+            "methodRenamed": "Hernoemd.",
         },
     },
 }
@@ -630,14 +648,99 @@ def haal_leden(device_id):
     return leden
 
 
-def maak_lid_met_code(device_id, naam, pincode):
-    """Maakt een apparaatlid aan en schrijft er een vaste pincode voor in.
+TYPE_NAAR_DP = {v: k for k, v in DP_NAAR_TYPE.items()}
 
-    De methode krijgt van Tuya een automatische naam (zoals '11-8'); die
-    zetten we meteen om naar de naam van het lid, zodat het ontgrendellog
-    leesbaar is. Mislukt het inschrijven, dan wordt het lid weer verwijderd
-    zodat er geen lege profielen achterblijven.
+
+def _methodes_van(api, device_id, uid):
+    m = api.get(
+        f"/v1.0/smart-lock/devices/{device_id}/opmodes/{uid}",
+        {"page_no": 1, "page_size": 50},
+    )
+    mres = m.get("result") or {}
+    return (mres.get("records") if isinstance(mres, dict) else mres) or []
+
+
+def _controleer(r, wat):
+    """Zet Tuya's antwoord om in een fout die de gebruiker begrijpt.
+
+    Code 2328 'operation in progress' komt als het slot nog in inschrijfmodus
+    staat na een '+ pasje': ongeveer een minuut lang weigert het elke andere
+    wijziging. Gemeten: na die minuut lukt dezelfde aanroep gewoon."""
+    if r.get("success"):
+        return r
+    if r.get("code") == 2328:
+        raise ValueError(
+            "the lock is still waiting for a card from an earlier enrolment - "
+            "hold the card against the keypad, or try again in a minute"
+        )
+    raise RuntimeError(f"could not {wat}: {r}")
+
+
+def hernoem_methode(device_id, unlock_type, sn, naam):
+    with TUYA_LOCK:
+        r = get_api().put(
+            f"/v1.0/devices/{device_id}/door-lock/opmodes/{sn}",
+            {"dp_code": TYPE_NAAR_DP.get(unlock_type, unlock_type), "unlock_name": naam},
+        )
+    return _controleer(r, "rename the unlock method")
+
+
+def schrijf_methode_in(device_id, uid, unlock_type, pincode=None, naam=None):
+    """Voegt een ontgrendelmethode toe aan een bestaand apparaatlid.
+
+    Een pincode gaat versleuteld mee, met dezelfde ticket-aanpak als bij een
+    tijdelijke code; Tuya geeft de methode een automatische naam ('11-8') die
+    we meteen omzetten naar de opgegeven naam. Bij een pasje of vingerafdruk
+    kan er niets mee: de aanroep zet het slot in inschrijfmodus, en dan moet
+    iemand het pasje bij het apparaat aanbieden. De methode verschijnt daarna
+    vanzelf in de lijst en kan dan hernoemd worden.
     """
+    if unlock_type not in TYPE_NAAR_DP:
+        raise ValueError(f"unknown unlock type '{unlock_type}' - use password, card, fingerprint or face")
+    with TUYA_LOCK:
+        api = get_api()
+        body = {"unlock_type": unlock_type, "user_type": 2, "user_id": uid}
+        if unlock_type == "password":
+            if not pincode or not str(pincode).isdigit():
+                raise ValueError("the PIN may only contain digits")
+            ticket = get_ticket(api, device_id)
+            ticket_key = decrypt_ticket_key(ticket["ticket_key"], CFG["access_secret"])
+            body.update(
+                {
+                    "password_type": "ticket",
+                    "ticket_id": ticket["ticket_id"],
+                    "password": encrypt_password(str(pincode), ticket_key),
+                }
+            )
+        bestaand = {x.get("unlock_sn") for x in _methodes_van(api, device_id, uid)}
+        r = api.put(f"/v1.0/devices/{device_id}/door-lock/actions/entry", body)
+        _controleer(r, f"enrol the {unlock_type}")
+        if unlock_type != "password":
+            # Het slot wacht nu op het pasje; er is nog geen slotnummer.
+            return {"user_id": uid, "sn": None, "pending": True}
+
+        # Het nieuwe slotnummer is het enige dat er net nog niet was.
+        sn = None
+        dp = TYPE_NAAR_DP[unlock_type]
+        for _ in range(5):
+            nieuw = [x for x in _methodes_van(api, device_id, uid)
+                     if x.get("dp_code") == dp and x.get("unlock_sn") not in bestaand]
+            if nieuw:
+                sn = nieuw[0].get("unlock_sn")
+                break
+            time.sleep(1)
+        if sn is not None and naam:
+            api.put(
+                f"/v1.0/devices/{device_id}/door-lock/opmodes/{sn}",
+                {"dp_code": dp, "unlock_name": naam},
+            )
+    return {"user_id": uid, "sn": sn, "pending": False}
+
+
+def maak_lid_met_code(device_id, naam, pincode):
+    """Maakt een apparaatlid aan en schrijft er meteen een vaste pincode voor
+    in. Mislukt het inschrijven, dan wordt het lid weer verwijderd zodat er
+    geen lege profielen achterblijven."""
     with TUYA_LOCK:
         api = get_api()
         r = api.post(f"/v1.0/devices/{device_id}/user", {"nick_name": naam, "sex": 0})
@@ -645,44 +748,13 @@ def maak_lid_met_code(device_id, naam, pincode):
             raise RuntimeError(f"could not create the member: {r}")
         res = r["result"]
         uid = res if isinstance(res, str) else (res.get("user_id") or res.get("id"))
-
-        ticket = get_ticket(api, device_id)
-        ticket_key = decrypt_ticket_key(ticket["ticket_key"], CFG["access_secret"])
-        r = api.put(
-            f"/v1.0/devices/{device_id}/door-lock/actions/entry",
-            {
-                "unlock_type": "password",
-                "user_type": 2,
-                "user_id": uid,
-                "password_type": "ticket",
-                "ticket_id": ticket["ticket_id"],
-                "password": encrypt_password(pincode, ticket_key),
-            },
-        )
-        if not r.get("success"):
-            api.delete(f"/v1.0/devices/{device_id}/users/{uid}")
-            raise RuntimeError(f"could not enrol the PIN: {r}")
-
-        # Het slotnummer opzoeken en de methode naar het lid vernoemen.
-        sn = None
-        for _ in range(5):
-            m = api.get(
-                f"/v1.0/smart-lock/devices/{device_id}/opmodes/{uid}",
-                {"page_no": 1, "page_size": 20},
-            )
-            mres = m.get("result") or {}
-            for x in (mres.get("records") if isinstance(mres, dict) else mres) or []:
-                if x.get("dp_code") == "unlock_password":
-                    sn = x.get("unlock_sn")
-            if sn is not None:
-                break
-            time.sleep(1)
-        if sn is not None:
-            api.put(
-                f"/v1.0/devices/{device_id}/door-lock/opmodes/{sn}",
-                {"dp_code": "unlock_password", "unlock_name": naam},
-            )
-    return {"user_id": uid, "sn": sn}
+    try:
+        uit = schrijf_methode_in(device_id, uid, "password", pincode, naam)
+    except Exception:
+        with TUYA_LOCK:
+            get_api().delete(f"/v1.0/devices/{device_id}/users/{uid}")
+        raise
+    return {"user_id": uid, "sn": uit["sn"]}
 
 
 def verwijder_methode(device_id, uid, home_user, unlock_type, sn):
@@ -692,9 +764,7 @@ def verwijder_methode(device_id, uid, home_user, unlock_type, sn):
             f"/v1.0/devices/{device_id}/door-lock/user-types/{pad_type}/users/{uid}"
             f"/unlock-types/{unlock_type}/keys/{sn}"
         )
-    if not r.get("success"):
-        raise RuntimeError(f"could not delete the unlock method: {r}")
-    return r
+    return _controleer(r, "delete the unlock method")
 
 
 def verwijder_lid(device_id, uid):
@@ -927,6 +997,39 @@ def create_member(room):
 def delete_member(room, user_id):
     uit = verwijder_lid(resolve_device(room), user_id)
     return jsonify({"success": True, **uit})
+
+
+def _apparaatlid(device_id, user_id):
+    lid = next((l for l in haal_leden(device_id) if l["user_id"] == user_id), None)
+    if lid is None:
+        raise ValueError(f"unknown member '{user_id}'")
+    if lid["home_user"]:
+        raise ValueError("this belongs to an app account that shares the lock - manage it in the Tuya app")
+    return lid
+
+
+@app.route("/members/<room>/<user_id>/methods", methods=["POST"])
+def add_member_method(room, user_id):
+    """Voegt een pincode toe, of zet het slot in inschrijfmodus voor een pasje."""
+    data = request.get_json(force=True)
+    device_id = resolve_device(room)
+    lid = _apparaatlid(device_id, user_id)
+    soort = (data.get("type") or "password").strip().lower()
+    naam = (data.get("name") or "").strip() or lid["name"]
+    uit = schrijf_methode_in(device_id, user_id, soort, data.get("password"), naam)
+    return jsonify({"success": True, **uit})
+
+
+@app.route("/members/<room>/<user_id>/methods/<unlock_type>/<sn>", methods=["PUT"])
+def rename_member_method(room, user_id, unlock_type, sn):
+    data = request.get_json(force=True)
+    device_id = resolve_device(room)
+    _apparaatlid(device_id, user_id)
+    naam = (data.get("name") or "").strip()
+    if not naam:
+        raise ValueError("a name is required")
+    hernoem_methode(device_id, unlock_type, sn, naam)
+    return jsonify({"success": True})
 
 
 @app.route("/members/<room>/<user_id>/methods/<unlock_type>/<sn>", methods=["DELETE"])
@@ -1308,13 +1411,31 @@ async function laadProfielen() {
         // verwijderen daarvan via de API is op dit apparaat niet te testen
         // gebleken (inschrijven op zo'n account geeft 'param is illegal').
         if (!lid.home_user) {
+          const hern = document.createElement('button');
+          hern.className = 'sec klein';
+          hern.textContent = T.rename;
+          hern.onclick = () => hernoemMethode(slot, lid, m, hern);
           const weg = document.createElement('button');
           weg.className = 'sec klein';
           weg.textContent = T.removeMethod;
           weg.onclick = () => verwijderMethode(slot, lid, m, weg);
-          rij.appendChild(weg);
+          rij.append(hern, weg);
         }
         methodes.appendChild(rij);
+      }
+      if (!lid.home_user) {
+        const toevoegen = document.createElement('div');
+        toevoegen.className = 'methode';
+        const pin = document.createElement('button');
+        pin.className = 'sec klein';
+        pin.textContent = T.addPin;
+        pin.onclick = () => voegPinToe(slot, lid, pin);
+        const kaart = document.createElement('button');
+        kaart.className = 'sec klein';
+        kaart.textContent = T.addCard;
+        kaart.onclick = () => voegPasToe(slot, lid, kaart);
+        toevoegen.append(pin, kaart);
+        methodes.appendChild(toevoegen);
       }
       const actie = document.createElement('td');
       actie.style.textAlign = 'right';
@@ -1341,6 +1462,60 @@ async function verwijderMethode(slot, lid, m, knop) {
   try {
     await api('members/' + slot + '/' + lid.user_id + '/methods/' + m.type + '/' + m.sn, { method: 'DELETE' });
     melding(T.methodRemoved, 'good');
+    laadProfielen();
+  } catch (e) {
+    melding(vul(T.failed, { err: e.message }), 'err');
+    knop.disabled = false;
+  }
+}
+
+async function voegPinToe(slot, lid, knop) {
+  const pin = prompt(vul(T.promptPin, { name: lid.name }));
+  if (pin === null) return;
+  if (!/^[0-9]+$/.test(pin.trim())) return melding(T.pinDigits, 'err');
+  const naam = prompt(vul(T.promptMethodName, { name: lid.name }));
+  if (naam === null) return;
+  knop.disabled = true;
+  try {
+    await api('members/' + slot + '/' + lid.user_id + '/methods', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'password', password: pin.trim(), name: naam.trim() })
+    });
+    melding(T.pinAdded, 'good');
+    laadProfielen();
+  } catch (e) {
+    melding(vul(T.createFailed, { err: e.message }), 'err');
+    knop.disabled = false;
+  }
+}
+
+async function voegPasToe(slot, lid, knop) {
+  knop.disabled = true;
+  try {
+    await api('members/' + slot + '/' + lid.user_id + '/methods', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'card' })
+    });
+    melding(vul(T.cardEnrolStarted, { name: lid.name }), 'good');
+  } catch (e) {
+    melding(vul(T.createFailed, { err: e.message }), 'err');
+  }
+  knop.disabled = false;
+}
+
+async function hernoemMethode(slot, lid, m, knop) {
+  const naam = prompt(vul(T.promptRename, { name: m.name || ('#' + m.sn) }), m.name || '');
+  if (naam === null || !naam.trim()) return;
+  knop.disabled = true;
+  try {
+    await api('members/' + slot + '/' + lid.user_id + '/methods/' + m.type + '/' + m.sn, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: naam.trim() })
+    });
+    melding(T.methodRenamed, 'good');
     laadProfielen();
   } catch (e) {
     melding(vul(T.failed, { err: e.message }), 'err');
@@ -1781,12 +1956,24 @@ def _voer_opdracht_uit(naam, opdracht):
             resp = {"success": True, "result": uit}
         elif actie == "member_delete":
             resp = {"success": True, "result": verwijder_lid(device_id, opdracht["user_id"])}
+        elif actie == "method_add":
+            uit = schrijf_methode_in(
+                device_id,
+                opdracht["user_id"],
+                (opdracht.get("type") or "password").strip().lower(),
+                opdracht.get("password"),
+                (opdracht.get("name") or "").strip() or None,
+            )
+            resp = {"success": True, "result": uit}
+        elif actie == "method_rename":
+            hernoem_methode(device_id, opdracht.get("type") or "password", opdracht["sn"], opdracht["name"])
+            resp = {"success": True}
         elif actie == "refresh":
             resp = {"success": True}
         else:
             raise ValueError(
                 f"unknown action '{actie}' - use unlock, book, code, revoke, "
-                f"purge, member_add, member_delete or refresh"
+                f"purge, member_add, member_delete, method_add, method_rename or refresh"
             )
 
         antwoord["success"] = bool(resp.get("success"))
